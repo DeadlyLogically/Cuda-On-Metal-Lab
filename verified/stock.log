@@ -1,0 +1,17 @@
+CUMETAL WARNING: cuLaunchKernel is guessing the argument count by scanning kernelParams for a NULL terminator, which CUDA does not guarantee. The metallib has no .cumetal-abi sidecar.
+CUMETAL_DEBUG_ERRORS: cudaLaunchKernel -> 1
+Traceback (most recent call last):
+  File "sass/mac/run_gpu.py", line 149, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "sass/mac/run_gpu.py", line 141, in main
+    report = run(args)
+  File "sass/mac/run_gpu.py", line 115, in run
+    rows = [run_size(driver,fn,args.oracle or args.entry,n) for n in args.sizes]
+            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "sass/mac/run_gpu.py", line 72, in run_size
+    driver.call('cuLaunchKernel',kernel, grid,1,1, block,1,1,0,None,args,None)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "sass/mac/run_gpu.py", line 40, in call
+    raise RuntimeError(f'{name} returned {status}')
+RuntimeError: cuLaunchKernel returned 1

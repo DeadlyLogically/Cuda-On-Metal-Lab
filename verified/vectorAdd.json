@@ -1,0 +1,83 @@
+{
+  "device": "Apple M2",
+  "entry": "vectorAdd",
+  "library_sha256": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+  "load_api": "cuModuleLoad",
+  "cubin_sha256": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+  "load_get_function_ns": 5738778292,
+  "rows": [
+    {
+      "n": 1,
+      "output_sha256": "505052b0716415ea54cb587874fcf8617d8fb71deae558d62f17ad9bb60f73f1",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 271,
+      "oracle_match": true,
+      "launch_sync_ns": 29866166
+    },
+    {
+      "n": 31,
+      "output_sha256": "6283abae687844d5fce38276961a486fb2b7cc67b76d314c73f57ae443e12c97",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 241,
+      "oracle_match": true,
+      "launch_sync_ns": 444250
+    },
+    {
+      "n": 32,
+      "output_sha256": "30e7fbf2e92ae2b557177d15bc51f14df8495493409e413c2cec2cafb0d6afc1",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 240,
+      "oracle_match": true,
+      "launch_sync_ns": 286459
+    },
+    {
+      "n": 33,
+      "output_sha256": "20b6cad77724fe944f821eb855024b4ac6d135ee3662c19a51b7c1521c057b42",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 239,
+      "oracle_match": true,
+      "launch_sync_ns": 337958
+    },
+    {
+      "n": 255,
+      "output_sha256": "7c7c8d1f86d41ff5328fb76bf8f67ef9765483223ef98232b9c71ba347d5f381",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 17,
+      "oracle_match": true,
+      "launch_sync_ns": 300708
+    },
+    {
+      "n": 256,
+      "output_sha256": "11ef7557e5310b28e805d5c02f2a2fd05eb1032a5b23fa002b372ad9481112bf",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 16,
+      "oracle_match": true,
+      "launch_sync_ns": 239958
+    },
+    {
+      "n": 257,
+      "output_sha256": "2cbdca96468714d5f213d9da1b4fbb214b1a661bf7984d7967cbb2993b99b443",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 271,
+      "oracle_match": true,
+      "launch_sync_ns": 296542
+    },
+    {
+      "n": 1003,
+      "output_sha256": "3b792d391ba824d4b1d417db9cb7ae553eecdb7567733784f295f860cee58c48",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 37,
+      "oracle_match": true,
+      "launch_sync_ns": 475375
+    },
+    {
+      "n": 50000,
+      "output_sha256": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "guard_sha256": "7ffa62ac288be4999471986cd1aa891d8fffbf0245c82a51ac3436e22ae69b04",
+      "guard_count_checked": 192,
+      "oracle_match": true,
+      "launch_sync_ns": 3544625
+    }
+  ],
+  "passed": true
+}

@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+if not os.environ.get('NVDISASM_BINARY'):
+    sys.exit('Set NVDISASM_BINARY to your Linux ARM64 nvdisasm executable.')
+disasm = Path(os.environ['NVDISASM_BINARY']).resolve(strict=True)
+options = sys.argv[1:]
+files = [i for i,o in enumerate(options) if Path(o).is_file()]
+if len(files) != 1:
+    sys.exit('nvdisasm wrapper expects one local CUBIN')
+idx = files[0]
+image = Path(options[idx]).resolve(strict=True)
+options[idx] = '/input.cubin'
+cmd=['docker','run','--rm','--network','none','--platform','linux/arm64',
+     '-v',str(disasm)+':/nvdisasm:ro','-v',str(image)+':/input.cubin:ro',
+     os.environ.get('NVDISASM_CONTAINER','debian:bookworm-slim'),'/nvdisasm',*options]
+os.execvp(cmd[0],cmd)

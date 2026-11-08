@@ -1,0 +1,13 @@
+SASS lift failed: atomicSum+0xa0: unsupported instruction RED.E.ADD.F32.FTZ.RN.STRONG.GPU or operands ('[R2]', 'R5')
+Traceback (most recent call last):
+  File "sass/mac/run_gpu.py", line 149, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "sass/mac/run_gpu.py", line 141, in main
+    report = run(args)
+  File "sass/mac/run_gpu.py", line 110, in run
+    driver.call('cuModuleLoad',C.byref(module),os.fsencode(cubin))
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "sass/mac/run_gpu.py", line 40, in call
+    raise RuntimeError(f'{name} returned {status}')
+RuntimeError: cuModuleLoad returned 801

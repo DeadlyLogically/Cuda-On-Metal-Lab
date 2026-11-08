@@ -1,0 +1,103 @@
+{
+  "vectorAdd": {
+    "kernel": "vectorAdd",
+    "cubin_sha256": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+    "cubin_bytes": 2728,
+    "source_sha256": "fe190d34eb7f7675d64c3a8589af4a44bc4398aa5a7d616b8d01370f28f8a745",
+    "embedded_ptx_dump_bytes": 0,
+    "instruction_counts": {
+      "BRA": 1,
+      "EXIT": 2,
+      "FADD": 1,
+      "IMAD": 1,
+      "IMAD.WIDE": 3,
+      "ISETP.GE.AND": 1,
+      "LDG.E.SYS": 2,
+      "MOV": 2,
+      "S2R": 2,
+      "STG.E.SYS": 1
+    }
+  },
+  "tripleSum": {
+    "kernel": "tripleSum",
+    "cubin_sha256": "1bbffec58a782dd074a585c1f8e3c6d7461527ccc23aa1703fec999b911e8780",
+    "cubin_bytes": 2856,
+    "source_sha256": "5e7f9ed1f547fbb5af7d801c0736a3ce094297aae587bf2f2c5e39f2ebd07727",
+    "embedded_ptx_dump_bytes": 0,
+    "instruction_counts": {
+      "BRA": 1,
+      "EXIT": 2,
+      "FADD": 2,
+      "IMAD": 1,
+      "IMAD.WIDE": 3,
+      "ISETP.GE.AND": 1,
+      "LDG.E.SYS": 2,
+      "MOV": 2,
+      "NOP": 7,
+      "S2R": 2,
+      "STG.E.SYS": 1
+    }
+  },
+  "elementMultiply": {
+    "kernel": "elementMultiply",
+    "cubin_sha256": "0018f0d8af058f45376324007078e69471c257f62290c713c1b8b59622e9215f",
+    "cubin_bytes": 2728,
+    "source_sha256": "4c369c949279fc5e7048bc68ed1c0dad6a91dfa0c535a36e8ce998651fc5a11f",
+    "embedded_ptx_dump_bytes": 0,
+    "instruction_counts": {
+      "BRA": 1,
+      "EXIT": 2,
+      "FMUL": 1,
+      "IMAD": 1,
+      "IMAD.WIDE": 3,
+      "ISETP.GE.AND": 1,
+      "LDG.E.SYS": 2,
+      "MOV": 2,
+      "S2R": 2,
+      "STG.E.SYS": 1
+    }
+  },
+  "atomicSum": {
+    "kernel": "atomicSum",
+    "cubin_sha256": "6104e883bf465bb38ee4e2f0f4010e2e895229080ef80e04b68e9acff2a8a8b6",
+    "cubin_bytes": 2728,
+    "source_sha256": "6da4be38e424164b596c7471a902b07175aea875aeba5da53f56dfc50e27121b",
+    "embedded_ptx_dump_bytes": 0,
+    "instruction_counts": {
+      "BRA": 1,
+      "EXIT": 2,
+      "IMAD": 1,
+      "IMAD.WIDE": 2,
+      "ISETP.GE.AND": 1,
+      "LDG.E.SYS": 1,
+      "MOV": 2,
+      "NOP": 3,
+      "RED.E.ADD.F32.FTZ.RN.STRONG.GPU": 1,
+      "S2R": 2
+    }
+  },
+  "sameNameMultiply": {
+    "kernel": "vectorAdd",
+    "oracle": "multiply",
+    "origin": "one instruction replaced in vectorAdd",
+    "cubin_sha256": "fc72129465badf47ad54301673d8c50dc292e6d3e4fc43cd7edcc3bd031d05be",
+    "cubin_bytes": 2728,
+    "embedded_ptx_dump_bytes": 0,
+    "changed_file_byte_offsets": [
+      1728,
+      1738
+    ],
+    "instruction_counts": {
+      "BRA": 1,
+      "EXIT": 2,
+      "FMUL": 1,
+      "IMAD": 1,
+      "IMAD.WIDE": 3,
+      "ISETP.GE.AND": 1,
+      "LDG.E.SYS": 2,
+      "MOV": 2,
+      "S2R": 2,
+      "STG.E.SYS": 1
+    }
+  }
+}

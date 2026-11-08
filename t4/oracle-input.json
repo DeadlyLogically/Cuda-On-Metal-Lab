@@ -1,0 +1,26 @@
+[
+  {
+    "file": "vectorAdd.sm75.cubin",
+    "symbol": "vectorAdd",
+    "reference": "vectorAdd",
+    "sha256": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7"
+  },
+  {
+    "file": "tripleSum.sm75.cubin",
+    "symbol": "tripleSum",
+    "reference": "tripleSum",
+    "sha256": "1bbffec58a782dd074a585c1f8e3c6d7461527ccc23aa1703fec999b911e8780"
+  },
+  {
+    "file": "elementMultiply.sm75.cubin",
+    "symbol": "elementMultiply",
+    "reference": "elementMultiply",
+    "sha256": "0018f0d8af058f45376324007078e69471c257f62290c713c1b8b59622e9215f"
+  },
+  {
+    "file": "sameNameMultiply.sm75.cubin",
+    "symbol": "vectorAdd",
+    "reference": "elementMultiply",
+    "sha256": "fc72129465badf47ad54301673d8c50dc292e6d3e4fc43cd7edcc3bd031d05be"
+  }
+]

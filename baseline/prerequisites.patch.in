@@ -1,0 +1,1060 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3eb5597..a6822dd 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -245,0 +246 @@ add_library(cumetal_ptx_codegen STATIC
++    compiler/ptx/src/kernel_abi.cpp
+@@ -278,0 +280,14 @@ find_library(CUMETAL_ZSTD_LIBRARY NAMES zstd REQUIRED)
++include(cmake/EmbedMetalSupport.cmake)
++cumetal_expand_metal_support(
++    "${CMAKE_SOURCE_DIR}/compiler/metal/support/cumetal_fp64_inline_support.metal"
++    CUMETAL_FP64_INLINE_SOURCE)
++cumetal_expand_metal_support(
++    "${CMAKE_SOURCE_DIR}/compiler/metal/support/cumetal_libdevice_support.metal"
++    CUMETAL_LIBDEVICE_SOURCE)
++if(CUMETAL_FP64_INLINE_SOURCE MATCHES "\\)CUMETAL_FP64\"" OR
++   CUMETAL_LIBDEVICE_SOURCE MATCHES "\\)CUMETAL_LIBDEV\"")
++    message(FATAL_ERROR "Bundled Metal source contains its C++ raw-string delimiter")
++endif()
++configure_file(runtime/registration/metal_support_sources.h.in
++    generated/metal_support_sources.h @ONLY)
++
+@@ -336,0 +352 @@ target_include_directories(cumetal_runtime
++        ${CMAKE_CURRENT_BINARY_DIR}/generated
+diff --git a/cmake/EmbedMetalSupport.cmake b/cmake/EmbedMetalSupport.cmake
+new file mode 100644
+index 0000000..858ca6e
+--- /dev/null
++++ b/cmake/EmbedMetalSupport.cmake
+@@ -0,0 +1,32 @@
++function(cumetal_expand_metal_support input output)
++    set(active "${ARGN}")
++    if(NOT EXISTS "${input}")
++        message(FATAL_ERROR "Missing bundled Metal support: ${input}")
++    endif()
++    get_filename_component(source "${input}" REALPATH)
++    if(source IN_LIST active)
++        message(FATAL_ERROR "Cyclic bundled Metal include: ${source}")
++    endif()
++    list(LENGTH active depth)
++    if(depth GREATER 32)
++        message(FATAL_ERROR "Bundled Metal include depth exceeded")
++    endif()
++    list(APPEND active "${source}")
++    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
++    file(READ "${source}" text)
++    get_filename_component(parent "${source}" DIRECTORY)
++    string(REGEX MATCHALL "(^|\n)[ \t]*#[ \t]*include[ \t]+\"[^\"\n]+\"[^\n]*" includes "${text}")
++    foreach(directive IN LISTS includes)
++        string(REGEX MATCH "\"([^\"]+)\"" ignored "${directive}")
++        set(child "${CMAKE_MATCH_1}")
++        if(NOT IS_ABSOLUTE "${child}")
++            set(child "${parent}/${child}")
++        endif()
++        cumetal_expand_metal_support("${child}" expanded "${active}")
++        string(REPLACE "${directive}" "\n${expanded}\n" text "${text}")
++    endforeach()
++    if(text MATCHES "(^|\n)[ \t]*#[ \t]*include[ \t]+[^< \t]")
++        message(FATAL_ERROR "Unsupported bundled Metal include in ${source}")
++    endif()
++    set(${output} "${text}" PARENT_SCOPE)
++endfunction()
+diff --git a/compiler/cumetalc/main.cpp b/compiler/cumetalc/main.cpp
+index 77061a6..08e6a8a 100644
+--- a/compiler/cumetalc/main.cpp
++++ b/compiler/cumetalc/main.cpp
+@@ -5,0 +6 @@
++#include "cumetal/ptx/kernel_abi.h"
+@@ -133,88 +134,5 @@ std::string build_ir_abi_sidecar(const cumetal::ir::Module& module,
+-    std::string text = "CUMETAL_ABI_V2\n";
+-    std::size_t emitted = 0;
+-    for (const auto& function : module.functions) {
+-        if (!function.is_kernel || !function.kernel_abi.has_value()) {
+-            continue;
+-        }
+-        if (!requested_entry.empty() && function.name != requested_entry) {
+-            continue;
+-        }
+-        const cumetal::ir::KernelAbi& abi = *function.kernel_abi;
+-        std::string block = "kernel " + function.name + "\n";
+-@UPSTREAM_LINE=144@
+-@UPSTREAM_LINE=145@
+-        const auto shared = ptx_source.empty() ? abi.static_threadgroup_memory
+-            : cumetal::ptx::compute_static_shared_bytes(ptx_source, function.name);
+-        block += "shared " + std::to_string(shared) + "\n";
+-        bool usable = true;
+-@UPSTREAM_LINE=150@
+-@UPSTREAM_LINE=151@
+-@UPSTREAM_LINE=152@
+-@UPSTREAM_LINE=153@
+-@UPSTREAM_LINE=154@
+-@UPSTREAM_LINE=155@
+-        std::string globals;
+-        for (const auto& argument : abi.arguments) {
+-            constexpr std::string_view kGlobalRole = "global_symbol:";
+-            if (!argument.hidden_role.has_value()) continue;
+-            if (!argument.hidden_role->starts_with(kGlobalRole)) continue;
+-            const std::string name = argument.hidden_role->substr(kGlobalRole.size());
+-            const auto binding = std::find_if(
+-                abi.bindings.begin(), abi.bindings.end(),
+-                [&](const cumetal::ir::BindingDescriptor& candidate) {
+-                    return candidate.hidden_role == argument.hidden_role;
+-                });
+-            if (binding == abi.bindings.end() || binding->size == 0) {
+-                std::cerr << "cumetalc: kernel ABI omitted for '" << function.name
+-                          << "': device global '" << name << "' has no sized binding\n";
+-                usable = false;
+-                break;
+-            }
+-            std::vector<std::uint8_t> initializer;
+-            for (const auto& symbol : module.external_symbols) {
+-                if (symbol.name == name) initializer = symbol.initializer;
+-            }
+-            if (initializer.empty() && !ptx_source.empty()) {
+-                if (const auto bytes =
+-                        cumetal::ptx::find_initialized_global_bytes(ptx_source, name))
+-                    initializer = *bytes;
+-            }
+-            globals += "global " + name + " " + std::to_string(binding->size) + " " +
+-                       std::to_string(std::max<std::uint32_t>(1, binding->alignment)) + " ";
+-            if (initializer.size() == binding->size) {
+-                static constexpr char kHex[] = "0123456789abcdef";
+-                for (const std::uint8_t byte : initializer) {
+-                    globals += kHex[byte >> 4];
+-                    globals += kHex[byte & 0xF];
+-                }
+-            } else {
+-                globals += "-";
+-            }
+-            globals += "\n";
+-        }
+-        if (!usable) continue;
+-        for (const auto& argument : abi.arguments) {
+-            if (argument.hidden_role.has_value()) continue;
+-            if (argument.kind == cumetal::ir::ArgumentKind::kPointer) {
+-                block += "arg buffer 8\n";
+-                continue;
+-            }
+-            if (argument.size == 0 || argument.size > 4096) {
+-@UPSTREAM_LINE=203@
+-@UPSTREAM_LINE=204@
+-@UPSTREAM_LINE=205@
+-@UPSTREAM_LINE=206@
+-                std::cerr << "cumetalc: kernel ABI omitted for '" << function.name
+-                          << "': argument '" << argument.name << "' has unusable size "
+-                          << argument.size << "\n";
+-                usable = false;
+-                break;
+-            }
+-            block += "arg bytes " + std::to_string(argument.size) + "\n";
+-        }
+-        if (!usable) continue;
+-        block += globals;
+-        text += block;
+-        ++emitted;
+-    }
+-    return emitted == 0 ? std::string{} : text;
++    std::string diagnostics;
++    const std::string result = cumetal::ptx::build_ir_abi_sidecar(
++        module, requested_entry, ptx_source, &diagnostics);
++    if (!diagnostics.empty()) std::cerr << diagnostics;
++    return result;
+@@ -2555 +2473 @@ int main(int argc, char** argv) {
+-            if (!cumetal::ir::llvm_frontend_available()) {
++            if (emit_stage != EmitStage::kPtx && !cumetal::ir::llvm_frontend_available()) {
+diff --git a/compiler/ptx/include/cumetal/ptx/kernel_abi.h b/compiler/ptx/include/cumetal/ptx/kernel_abi.h
+new file mode 100644
+index 0000000..1aa3698
+--- /dev/null
++++ b/compiler/ptx/include/cumetal/ptx/kernel_abi.h
+@@ -0,0 +1,15 @@
++#pragma once
++
++#include "cumetal/ir/ir.h"
++
++#include <string>
++#include <string_view>
++
++namespace cumetal::ptx {
++
++std::string build_ir_abi_sidecar(const ir::Module& module,
++                                 const std::string& requested_entry,
++                                 std::string_view ptx_source = {},
++                                 std::string* diagnostics = nullptr);
++
++}
+diff --git a/compiler/ptx/src/kernel_abi.cpp b/compiler/ptx/src/kernel_abi.cpp
+new file mode 100644
+index 0000000..a020a5f
+--- /dev/null
++++ b/compiler/ptx/src/kernel_abi.cpp
+@@ -0,0 +1,92 @@
++#include "cumetal/ptx/kernel_abi.h"
++#include "cumetal/ptx/lower_to_llvm.h"
++
++#include <algorithm>
++#include <sstream>
++
++namespace cumetal::ptx {
++
++std::string build_ir_abi_sidecar(const cumetal::ir::Module& module,
++                                 const std::string& requested_entry,
++                                 std::string_view ptx_source, std::string* diagnostics) {
++    std::ostringstream messages;
++    std::string text = "CUMETAL_ABI_V2\n";
++    std::size_t emitted = 0;
++    for (const auto& function : module.functions) {
++        if (!function.is_kernel || !function.kernel_abi.has_value()) {
++            continue;
++        }
++        if (!requested_entry.empty() && function.name != requested_entry) {
++            continue;
++        }
++        const cumetal::ir::KernelAbi& abi = *function.kernel_abi;
++        std::string block = "kernel " + function.name + "\n";
++        const auto shared = ptx_source.empty() ? abi.static_threadgroup_memory
++            : cumetal::ptx::compute_static_shared_bytes(ptx_source, function.name);
++        block += "shared " + std::to_string(shared) + "\n";
++        bool usable = true;
++        std::string globals;
++        for (const auto& argument : abi.arguments) {
++            constexpr std::string_view kGlobalRole = "global_symbol:";
++            if (!argument.hidden_role.has_value()) continue;
++            if (!argument.hidden_role->starts_with(kGlobalRole)) continue;
++            const std::string name = argument.hidden_role->substr(kGlobalRole.size());
++            const auto binding = std::find_if(
++                abi.bindings.begin(), abi.bindings.end(),
++                [&](const cumetal::ir::BindingDescriptor& candidate) {
++                    return candidate.hidden_role == argument.hidden_role;
++                });
++            if (binding == abi.bindings.end() || binding->size == 0) {
++                messages << "cumetalc: kernel ABI omitted for '" << function.name
++                          << "': device global '" << name << "' has no sized binding\n";
++                usable = false;
++                break;
++            }
++            std::vector<std::uint8_t> initializer;
++            for (const auto& symbol : module.external_symbols) {
++                if (symbol.name == name) initializer = symbol.initializer;
++            }
++            if (initializer.empty() && !ptx_source.empty()) {
++                if (const auto bytes =
++                        cumetal::ptx::find_initialized_global_bytes(ptx_source, name))
++                    initializer = *bytes;
++            }
++            globals += "global " + name + " " + std::to_string(binding->size) + " " +
++                       std::to_string(std::max<std::uint32_t>(1, binding->alignment)) + " ";
++            if (initializer.size() == binding->size) {
++                static constexpr char kHex[] = "0123456789abcdef";
++                for (const std::uint8_t byte : initializer) {
++                    globals += kHex[byte >> 4];
++                    globals += kHex[byte & 0xF];
++                }
++            } else {
++                globals += "-";
++            }
++            globals += "\n";
++        }
++        if (!usable) continue;
++        for (const auto& argument : abi.arguments) {
++            if (argument.hidden_role.has_value()) continue;
++            if (argument.kind == cumetal::ir::ArgumentKind::kPointer) {
++                block += "arg buffer 8\n";
++                continue;
++            }
++            if (argument.size == 0 || argument.size > 4096) {
++                messages << "cumetalc: kernel ABI omitted for '" << function.name
++                          << "': argument '" << argument.name << "' has unusable size "
++                          << argument.size << "\n";
++                usable = false;
++                break;
++            }
++            block += "arg bytes " + std::to_string(argument.size) + "\n";
++        }
++        if (!usable) continue;
++        block += globals;
++        text += block;
++        ++emitted;
++    }
++    if (diagnostics != nullptr) *diagnostics = messages.str();
++    return emitted == 0 ? std::string{} : text;
++}
++
++}
+diff --git a/compiler/ptx/src/parser.cpp b/compiler/ptx/src/parser.cpp
+index b2bfa1b..010edc7 100644
+--- a/compiler/ptx/src/parser.cpp
++++ b/compiler/ptx/src/parser.cpp
+@@ -361,0 +362 @@ void infer_pointer_parameters(EntryFunction* entry) {
++    std::unordered_set<std::string> pointer_candidates;
+@@ -362,0 +364 @@ void infer_pointer_parameters(EntryFunction* entry) {
++        if (is_64bit_param_type(param.type)) pointer_candidates.insert(param.name);
+@@ -373,2 +375,7 @@ void infer_pointer_parameters(EntryFunction* entry) {
+-            if (!dest_register.empty() && param_names.contains(param_name)) {
+-                register_to_param[dest_register] = param_name;
++            if (!dest_register.empty()) {
++                if (pointer_candidates.contains(param_name)) {
++                    register_to_param[dest_register] = param_name;
++                } else if (instruction.predicate.empty()) {
++                    register_to_param.erase(dest_register);
++                }
++                if (instruction.predicate.empty()) non_parameter_addresses.erase(dest_register);
+diff --git a/runtime/api/cuda_device_runtime_api.h b/runtime/api/cuda_device_runtime_api.h
+index 626a711..773c1d6 100644
+--- a/runtime/api/cuda_device_runtime_api.h
++++ b/runtime/api/cuda_device_runtime_api.h
+@@ -18 +18 @@ extern "C" {
+-__device__ cudaError_t cudaLaunchDevice(void*, void**, dim3, dim3,
++__device__ cudaError_t cudaLaunchDevice(void*, void*, dim3, dim3,
+@@ -21 +21 @@ __device__ cudaError_t cudaLaunchDevice(void*, void**, dim3, dim3,
+-static inline cudaError_t cudaLaunchDevice(void*, void**, dim3, dim3, unsigned int, cudaStream_t) {
++static inline cudaError_t cudaLaunchDevice(void*, void*, dim3, dim3, unsigned int, cudaStream_t) {
+diff --git a/runtime/api/cuda_runtime.h b/runtime/api/cuda_runtime.h
+index 21f4d8e..279cdda 100644
+--- a/runtime/api/cuda_runtime.h
++++ b/runtime/api/cuda_runtime.h
+@@ -18,0 +19,3 @@
++#ifndef __HOST_DEFINES_H__
++#define __HOST_DEFINES_H__ 1
++#endif
+@@ -647 +650 @@ __device__ void* cudaGetParameterBuffer(size_t alignment, size_t size);
+-__device__ cudaError_t cudaLaunchDevice(void*, void**, dim3, dim3,
++__device__ cudaError_t cudaLaunchDevice(void*, void*, dim3, dim3,
+@@ -1166,0 +1170,4 @@ __host__ __device__ cudaError_t cudaDeviceSynchronize(void);
++static __host__ __device__ __forceinline__ cudaError_t
++__cudaDeviceSynchronizeDeprecationAvoidance(void) {
++    return cudaDeviceSynchronize();
++}
+diff --git a/runtime/driver/cuda_driver.cpp b/runtime/driver/cuda_driver.cpp
+index da996e6..b3674be 100644
+--- a/runtime/driver/cuda_driver.cpp
++++ b/runtime/driver/cuda_driver.cpp
+@@ -4,0 +5,2 @@
++#include "cumetal/metal/lower_to_msl.h"
++#include "cumetal/ptx/kernel_abi.h"
+@@ -14,0 +17 @@
++#include "metal_support_sources.h"
+@@ -16,0 +20 @@
++#include <unistd.h>
+@@ -54,0 +59,17 @@ struct DriverGlobalSymbol {
++struct DriverPtxModule {
++    std::string source;
++    std::vector<std::string> entries;
++    std::string fp64_mode;
++    std::string math_mode;
++    std::filesystem::path workspace;
++    std::map<std::string, std::string> artifacts;
++    std::mutex mutex;
++
++    ~DriverPtxModule() {
++        if (!workspace.empty()) {
++            std::error_code ec;
++            std::filesystem::remove_all(workspace, ec);
++        }
++    }
++};
++
+@@ -57,0 +79 @@ struct CUmod_st {
++    std::shared_ptr<DriverPtxModule> ptx;
+@@ -66,0 +89 @@ struct CUfunc_st {
++    std::string runtime_msl_path;
+@@ -74,0 +98,5 @@ namespace {
++const std::string& function_module_path(const CUfunc_st* function) {
++    return function->runtime_msl_path.empty() ? function->module->metallib_path
++                                             : function->runtime_msl_path;
++}
++
+@@ -235 +263 @@ CUresult query_function_properties(
+-        metallib_path = function->module->metallib_path;
++        metallib_path = function_module_path(function);
+@@ -378 +406 @@ void load_function_argument_count(CUfunc_st* function) {
+-    parse_abi_sidecar(function->module->metallib_path, &kernels);
++    parse_abi_sidecar(function_module_path(function), &kernels);
+@@ -380 +408 @@ void load_function_argument_count(CUfunc_st* function) {
+-        if (kernel.name == function->kernel_name && !kernel.info.empty()) {
++        if (kernel.name == function->kernel_name) {
+@@ -391 +419 @@ void load_function_argument_count(CUfunc_st* function) {
+-        cumetal::common::read_file_bytes(function->module->metallib_path, &error);
++        cumetal::common::read_file_bytes(function_module_path(function), &error);
+@@ -396 +424 @@ void load_function_argument_count(CUfunc_st* function) {
+-        function->module->metallib_path, bytes, 0);
++        function_module_path(function), bytes, 0);
+@@ -553 +581 @@ bool parse_direct_ptx_image(const void* image, std::string* out_ptx) {
+-    return extract_ptx_cstr(chars, 1ull << 20, out_ptx);
++    return extract_ptx_cstr(chars, kMaxImageBytes, out_ptx);
+@@ -618,0 +647,149 @@ bool parse_ptx_image(const void* image, std::string* out_ptx) {
++bool runtime_msl_driver_jit_enabled() {
++    const char* value = std::getenv("CUMETAL_DRIVER_JIT");
++    return value != nullptr && std::string_view(value) == "runtime-msl";
++}
++
++CUresult create_runtime_ptx_module(const std::string& source, CUmodule* out_module) {
++    const char* backend = std::getenv("CUMETAL_PTX_BACKEND");
++    if (backend != nullptr && backend[0] != '\0' &&
++        std::string_view(backend) != "cumetal-ir") {
++        return CUDA_ERROR_NOT_SUPPORTED;
++    }
++    const auto parsed = cumetal::ptx::parse_ptx(source, {.strict = false});
++    if (!parsed.ok || parsed.module.entries.empty()) return CUDA_ERROR_INVALID_IMAGE;
++    auto module = std::make_unique<CUmod_st>();
++    module->ptx = std::make_shared<DriverPtxModule>();
++    module->ptx->source = source;
++    module->ptx->fp64_mode = std::string(cumetal::ptx::fp64_mode_name(
++        cumetal::ptx::fp64_mode_from_env()));
++    module->ptx->math_mode =
++        cumetal::metal_math_mode_name(cumetal::current_metal_math_mode());
++    for (const auto& entry : parsed.module.entries) {
++        if (std::find(module->ptx->entries.begin(), module->ptx->entries.end(), entry.name) !=
++            module->ptx->entries.end()) return CUDA_ERROR_INVALID_IMAGE;
++        module->ptx->entries.push_back(entry.name);
++    }
++    DriverState& state = driver_state();
++    std::lock_guard<std::mutex> lock(state.mutex);
++    state.modules.insert(module.get());
++    *out_module = module.release();
++    return CUDA_SUCCESS;
++}
++
++CUresult compile_runtime_ptx_entry(const std::shared_ptr<DriverPtxModule>& module,
++                                   const std::string& name, std::string* out_path) {
++    std::lock_guard<std::mutex> lock(module->mutex);
++    if (const auto found = module->artifacts.find(name); found != module->artifacts.end()) {
++        *out_path = found->second;
++        return CUDA_SUCCESS;
++    }
++    if (std::find(module->entries.begin(), module->entries.end(), name) ==
++        module->entries.end()) return CUDA_ERROR_NOT_FOUND;
++
++    cumetal::metal::PtxToMslOptions options;
++    options.strict = true;
++    options.entry_name = name;
++    options.fp64_mode = module->fp64_mode;
++    options.source_name = "driver-runtime-ptx";
++    const auto compiled = cumetal::metal::compile_ptx_to_msl(module->source, options);
++    const auto report = [&](const std::string& error) {
++        if (cumetal::diag_env_truthy("CUMETAL_DEBUG_ERRORS")) {
++            std::fprintf(stderr, "CUMETAL_DEBUG_ERRORS: runtime-MSL Driver JIT '%s': %s\n",
++                         name.c_str(), error.c_str());
++        }
++    };
++    if (!compiled.ok || compiled.source.empty()) {
++        report(compiled.error.empty() ? "no MSL produced" : compiled.error);
++        return CUDA_ERROR_NOT_SUPPORTED;
++    }
++    for (const auto& warning : compiled.warnings) {
++        cumetal::warn_once("driver-runtime-msl:" + name + ":" + warning, warning);
++    }
++    if (!compiled.printf_formats.empty() || compiled.uses_device_heap ||
++        compiled.uses_device_launch_queue) {
++        report("device printf, device heap, and dynamic launch require registration-owned resources");
++        return CUDA_ERROR_NOT_SUPPORTED;
++    }
++    for (const auto& function : compiled.gpu_ir.functions) {
++        if (!function.is_kernel || !function.kernel_abi.has_value()) continue;
++        for (const auto& binding : function.kernel_abi->bindings) {
++            if (binding.hidden_role.has_value() &&
++                !binding.hidden_role->starts_with("global_symbol:")) {
++                report("unsupported hidden Driver JIT binding: " + *binding.hidden_role);
++                return CUDA_ERROR_NOT_SUPPORTED;
++            }
++        }
++    }
++    std::string abi_diagnostics;
++    const std::string abi = cumetal::ptx::build_ir_abi_sidecar(
++        compiled.gpu_ir, name, module->source, &abi_diagnostics);
++    if (abi.empty() || !abi_diagnostics.empty()) {
++        report(abi_diagnostics.empty() ? "typed kernel ABI missing" : abi_diagnostics);
++        return CUDA_ERROR_NOT_SUPPORTED;
++    }
++
++    const bool needs_fp64 = compiled.source.find("cm_fp64_") != std::string::npos ||
++                            compiled.source.find("vf64_") != std::string::npos;
++    const bool needs_libdevice = compiled.source.find("cm_libdevice_") != std::string::npos;
++    std::string source;
++    if (needs_fp64) {
++        std::string provenance = "generic_ptx_lowering";
++        if (module->fp64_mode == "fast48") provenance += "_fp64_emulated";
++        else if (module->fp64_mode == "wide48") provenance += "_fp64_wide48";
++        else if (module->fp64_mode == "ieee64") provenance += "_fp64_ieee64";
++        source += "// cumetal-provenance: " + provenance + "\n";
++    }
++    source += "// cumetal-math-mode: " +
++              std::string(needs_fp64 ? "safe" : module->math_mode) + "\n";
++    if (needs_fp64) {
++        source += cumetal::registration::support::kFp64;
++        source += '\n';
++    }
++    if (needs_libdevice) {
++        source += cumetal::registration::support::kLibdevice;
++        source += '\n';
++    }
++    source += compiled.source;
++    if (std::find(compiled.gpu_ir.semantic_caveats.begin(),
++                  compiled.gpu_ir.semantic_caveats.end(),
++                  cumetal::ir::kFp64LibdeviceViaF32Caveat) !=
++        compiled.gpu_ir.semantic_caveats.end()) {
++        cumetal::warn_fp64_libdevice_via_f32(module->fp64_mode);
++    }
++
++    if (module->workspace.empty()) {
++        std::error_code ec;
++        const auto temporary = std::filesystem::temp_directory_path(ec);
++        if (ec) return CUDA_ERROR_UNKNOWN;
++        const std::string pattern = (temporary / "cumetal-driver-msl-XXXXXX").string();
++        std::vector<char> directory(pattern.begin(), pattern.end());
++        directory.push_back('\0');
++        if (::mkdtemp(directory.data()) == nullptr) return CUDA_ERROR_UNKNOWN;
++        module->workspace = directory.data();
++    }
++    const auto path = module->workspace /
++        ("entry-" + std::to_string(module->artifacts.size()) + ".metal");
++    const auto abi_path = path.string() + ".cumetal-abi";
++    std::string error;
++    if (!cumetal::common::write_file_bytes(path, {source.begin(), source.end()}, &error) ||
++        !cumetal::common::write_file_bytes(abi_path, {abi.begin(), abi.end()}, &error)) {
++        std::error_code ec;
++        std::filesystem::remove(path, ec);
++        std::filesystem::remove(abi_path, ec);
++        report(error);
++        return CUDA_ERROR_UNKNOWN;
++    }
++    std::vector<SidecarKernel> kernels;
++    if (!parse_abi_sidecar(path.string(), &kernels) || kernels.size() != 1 ||
++        kernels.front().name != name) {
++        std::error_code ec;
++        std::filesystem::remove(path, ec);
++        std::filesystem::remove(abi_path, ec);
++        report("generated ABI failed validation");
++        return CUDA_ERROR_NOT_SUPPORTED;
++    }
++    module->artifacts.emplace(name, path.string());
++    *out_path = path.string();
++    return CUDA_SUCCESS;
++}
++
+@@ -1697,0 +1875 @@ CUresult ensure_module_global_storage(CUmod_st* module,
++        if (!is_valid_module_locked(state, module)) return CUDA_ERROR_INVALID_HANDLE;
+@@ -1724,0 +1903 @@ CUresult ensure_module_global_storage(CUmod_st* module,
++    CUresult published = CUDA_SUCCESS;
+@@ -1727,5 +1906,9 @@ CUresult ensure_module_global_storage(CUmod_st* module,
+-        const auto [entry, inserted] = module->global_storage.emplace(
+-            symbol.name, std::make_pair(storage, symbol.size));
+-@UPSTREAM_LINE=1729@
+-        if (!inserted) surplus = storage;
+-        *out_storage = entry->second.first;
++        if (!is_valid_module_locked(state, module)) {
++            surplus = storage;
++            published = CUDA_ERROR_INVALID_HANDLE;
++        } else {
++            const auto [entry, inserted] = module->global_storage.emplace(
++                symbol.name, std::make_pair(storage, symbol.size));
++            if (!inserted) surplus = storage;
++            *out_storage = entry->second.first;
++        }
+@@ -1734 +1917 @@ CUresult ensure_module_global_storage(CUmod_st* module,
+-    return CUDA_SUCCESS;
++    return published;
+@@ -1745,0 +1929,3 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
++    std::shared_ptr<DriverPtxModule> ptx;
++    std::string module_path;
++    std::vector<DriverGlobalSymbol> known_symbols;
+@@ -1751,0 +1938,6 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
++        ptx = hmod->ptx;
++        module_path = hmod->metallib_path;
++        for (const auto* function : hmod->functions) {
++            known_symbols.insert(known_symbols.end(), function->global_symbols.begin(),
++                                 function->global_symbols.end());
++        }
+@@ -1753,0 +1946,6 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
++        {
++            DriverState& state = driver_state();
++            std::lock_guard<std::mutex> lock(state.mutex);
++            if (!is_valid_module_locked(state, hmod) || hmod->ptx != ptx)
++                return CUDA_ERROR_INVALID_HANDLE;
++        }
+@@ -1763,4 +1961,2 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
+-    for (const CUfunc_st* function : hmod->functions) {
+-        for (const DriverGlobalSymbol& symbol : function->global_symbols) {
+-            if (symbol.name == name) return resolve(symbol);
+-        }
++    for (const auto& symbol : known_symbols) {
++        if (symbol.name == name) return resolve(symbol);
+@@ -1771 +1967 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
+-    parse_abi_sidecar(hmod->metallib_path, &kernels);
++    parse_abi_sidecar(module_path, &kernels);
+@@ -1776,0 +1973,13 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
++    if (ptx) {
++        for (const auto& entry : ptx->entries) {
++            std::string path;
++            if (compile_runtime_ptx_entry(ptx, entry, &path) != CUDA_SUCCESS) continue;
++            kernels.clear();
++            if (!parse_abi_sidecar(path, &kernels)) continue;
++            for (const auto& kernel : kernels) {
++                for (const auto& symbol : kernel.globals) {
++                    if (symbol.name == name) return resolve(symbol);
++                }
++            }
++        }
++    }
+@@ -1795,0 +2005,6 @@ CUresult cuModuleLoad(CUmodule* module, const char* fname) {
++    if (runtime_msl_driver_jit_enabled() && std::filesystem::path(fname).extension() == ".ptx") {
++        std::string error;
++        const auto bytes = cumetal::common::read_file_bytes(fname, &error);
++        if (bytes.empty() || bytes.size() > kMaxImageBytes) return CUDA_ERROR_INVALID_IMAGE;
++        return create_runtime_ptx_module(std::string(bytes.begin(), bytes.end()), module);
++    }
+@@ -1893,0 +2109,3 @@ CUresult cuModuleLoadData(CUmodule* module, const void* image) {
++        if (runtime_msl_driver_jit_enabled()) {
++            return create_runtime_ptx_module(ptx_text, module);
++        }
+@@ -2002,0 +2221 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
++    std::shared_ptr<DriverPtxModule> ptx;
+@@ -2013,0 +2233 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
++        ptx = hmod->ptx;
+@@ -2016,2 +2236,2 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
+-    auto* function = new (std::nothrow) CUfunc_st{};
+-    if (function == nullptr) {
++    auto function = std::unique_ptr<CUfunc_st>(new (std::nothrow) CUfunc_st{});
++    if (!function) {
+@@ -2019,0 +2240,4 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
++    if (ptx) {
++        const auto result = compile_runtime_ptx_entry(ptx, name, &function->runtime_msl_path);
++        if (result != CUDA_SUCCESS) return result;
++    }
+@@ -2022 +2245,0 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
+-    load_function_argument_count(function);
+@@ -2026,2 +2249,6 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
+-        hmod->functions.push_back(function);
+-        state.functions.insert(function);
++        if (!is_valid_module_locked(state, hmod) || hmod->ptx != ptx)
++            return CUDA_ERROR_INVALID_HANDLE;
++        load_function_argument_count(function.get());
++        if (ptx && !function->has_argument_count) return CUDA_ERROR_NOT_SUPPORTED;
++        hmod->functions.push_back(function.get());
++        state.functions.insert(function.get());
+@@ -2030 +2257 @@ CUresult cuModuleGetFunction(CUfunction* hfunc, CUmodule hmod, const char* name)
+-    *hfunc = function;
++    *hfunc = function.release();
+@@ -2084,0 +2312 @@ CUresult cuLaunchKernel(CUfunction f,
++        if (!f->runtime_msl_path.empty()) return CUDA_ERROR_NOT_SUPPORTED;
+@@ -2182,3 +2409,0 @@ CUresult cuLaunchKernel(CUfunction f,
+-            std::uintptr_t value = 0;
+-            std::memcpy(&value, kernelParams[i], sizeof(value));
+-            const bool is_pointer = is_runtime_device_pointer_word(value);
+@@ -2187,0 +2413,3 @@ CUresult cuLaunchKernel(CUfunction f,
++                std::uintptr_t value = 0;
++                std::memcpy(&value, kernelParams[i], sizeof(value));
++                const bool is_pointer = is_runtime_device_pointer_word(value);
+@@ -2225 +2453 @@ CUresult cuLaunchKernel(CUfunction f,
+-        .metallib_path = f->module->metallib_path.c_str(),
++        .metallib_path = function_module_path(f).c_str(),
+@@ -3471 +3699 @@ CUresult cuFuncLoad(CUfunction function) {
+-        metallib_path = function->module->metallib_path;
++        metallib_path = function_module_path(function);
+@@ -3505 +3733 @@ CUresult cuFuncIsLoaded(CUfunctionLoadingState* state_out, CUfunction function)
+-        metallib_path = function->module->metallib_path;
++        metallib_path = function_module_path(function);
+diff --git a/runtime/metal_backend/metal_backend.mm b/runtime/metal_backend/metal_backend.mm
+index a77da29..e27765e 100644
+--- a/runtime/metal_backend/metal_backend.mm
++++ b/runtime/metal_backend/metal_backend.mm
+@@ -1194 +1194,7 @@ id<MTLLibrary> load_library_locked(BackendState& backend,
+-            if ([src containsString:@"// cumetal-provenance: generic_nvvm_lowering"]) {
++            if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering_fp64_emulated"]) {
++                lowering_source = "generic_ptx_lowering_fp64_emulated";
++            } else if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering_fp64_wide48"]) {
++                lowering_source = "generic_ptx_lowering_fp64_wide48";
++            } else if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering_fp64_ieee64"]) {
++                lowering_source = "generic_ptx_lowering_fp64_ieee64";
++            } else if ([src containsString:@"// cumetal-provenance: generic_nvvm_lowering"]) {
+diff --git a/runtime/registration/metal_support_sources.h.in b/runtime/registration/metal_support_sources.h.in
+new file mode 100644
+index 0000000..fb7b0d5
+--- /dev/null
++++ b/runtime/registration/metal_support_sources.h.in
+@@ -0,0 +1,10 @@
++#pragma once
++
++namespace cumetal::registration::support {
++inline constexpr char kFp64[] = R"CUMETAL_FP64(
++@CUMETAL_FP64_INLINE_SOURCE@
++)CUMETAL_FP64";
++inline constexpr char kLibdevice[] = R"CUMETAL_LIBDEV(
++@CUMETAL_LIBDEVICE_SOURCE@
++)CUMETAL_LIBDEV";
++}
+diff --git a/runtime/registration/registration.cpp b/runtime/registration/registration.cpp
+index 113f3bc..ac6eea9 100644
+--- a/runtime/registration/registration.cpp
++++ b/runtime/registration/registration.cpp
+@@ -11,0 +12 @@
++#include "metal_support_sources.h"
+@@ -1346,2 +1347 @@ bool emit_ptx_entry_to_temp_metallib(const std::string& ptx_source,
+-        (ptx_source.find(".f64") != std::string::npos ||
+-         lowered_metal.metal_source.find("cm_fp64_") != std::string::npos ||
++        (lowered_metal.metal_source.find("cm_fp64_") != std::string::npos ||
+@@ -1352,4 +1351,0 @@ bool emit_ptx_entry_to_temp_metallib(const std::string& ptx_source,
+-@UPSTREAM_LINE=1352@
+-@UPSTREAM_LINE=1353@
+-    const bool typed_msl_needs_support =
+-        typed_msl_needs_fp64_support || typed_msl_needs_libdevice_support;
+@@ -1358,2 +1354,21 @@ bool emit_ptx_entry_to_temp_metallib(const std::string& ptx_source,
+-        const std::vector<std::uint8_t> metal_bytes(lowered_metal.metal_source.begin(),
+-                                                    lowered_metal.metal_source.end());
++        std::string runtime_source;
++        if (typed_msl_needs_fp64_support) {
++            const char* provenance = "generic_ptx_lowering";
++            if (fp64_mode == cumetal::ptx::Fp64Mode::kEmulate)
++                provenance = "generic_ptx_lowering_fp64_emulated";
++            else if (fp64_mode == cumetal::ptx::Fp64Mode::kWide48)
++                provenance = "generic_ptx_lowering_fp64_wide48";
++            else if (fp64_mode == cumetal::ptx::Fp64Mode::kIEEE64)
++                provenance = "generic_ptx_lowering_fp64_ieee64";
++            runtime_source += "// cumetal-provenance: ";
++            runtime_source += provenance;
++            runtime_source += "\n// cumetal-math-mode: safe\n";
++            runtime_source += support::kFp64;
++            runtime_source += '\n';
++        }
++        if (typed_msl_needs_libdevice_support) {
++            runtime_source += support::kLibdevice;
++            runtime_source += '\n';
++        }
++        runtime_source += lowered_metal.metal_source;
++        const std::vector<std::uint8_t> metal_bytes(runtime_source.begin(), runtime_source.end());
+@@ -1367,4 +1382 @@ bool emit_ptx_entry_to_temp_metallib(const std::string& ptx_source,
+-        if (!typed_msl_needs_support) {
+-@UPSTREAM_LINE=1368@
+-@UPSTREAM_LINE=1369@
+-@UPSTREAM_LINE=1370@
++        {
+@@ -1410,10 +1421,0 @@ bool emit_ptx_entry_to_temp_metallib(const std::string& ptx_source,
+-        if (typed_msl_needs_fp64_support) {
+-            emit_options.textual_include_inputs.push_back(
+-                std::filesystem::path(CUMETAL_SOURCE_DIR) / "compiler" /
+-                "metal" / "support" / "cumetal_fp64_inline_support.metal");
+-        }
+-        if (typed_msl_needs_libdevice_support) {
+-            emit_options.textual_include_inputs.push_back(
+-                std::filesystem::path(CUMETAL_SOURCE_DIR) / "compiler" /
+-                "metal" / "support" / "cumetal_libdevice_support.metal");
+-        }
+diff --git a/runtime/rt/cudnn.cpp b/runtime/rt/cudnn.cpp
+index f5658e8..68290f8 100644
+--- a/runtime/rt/cudnn.cpp
++++ b/runtime/rt/cudnn.cpp
+@@ -1,0 +2,2 @@
++#include "cudnn_softmax_msl.h"
++#include "library_kernel_source.h"
+@@ -17,2 +18,0 @@
+-@UPSTREAM_LINE=17@
+-@UPSTREAM_LINE=18@
+@@ -261,0 +262,113 @@ bool filter_pointer_valid(const void* pointer, const cudnnFilterStruct* filter)
++struct SoftmaxParams {
++    std::uint32_t columns;
++    std::uint32_t spatial;
++    std::uint32_t channel_mode;
++    std::uint32_t logarithmic;
++    float alpha;
++    float beta;
++};
++static_assert(sizeof(SoftmaxParams) == 24);
++
++cudnnStatus_t softmax_metal(cudnnHandle_t handle, const cudnnTensorStruct& desc,
++                            cudnnSoftmaxMode_t mode, cudnnSoftmaxAlgorithm_t algo,
++                            const void* alpha, const void* x, const void* beta, void* y,
++                            std::size_t bytes) {
++    using cumetal::rt::AllocationTable;
++    using cumetal::metal_backend::KernelArg;
++    AllocationTable::ResolvedAllocation rx, ry, ra, rb;
++    const bool x_tracked = cumetal::rt::resolve_allocation_for_pointer(x, &rx);
++    const bool y_tracked = cumetal::rt::resolve_allocation_for_pointer(y, &ry);
++    const bool a_tracked = cumetal::rt::resolve_allocation_for_pointer(alpha, &ra);
++    const bool b_tracked = cumetal::rt::resolve_allocation_for_pointer(beta, &rb);
++    if ((a_tracked && !ra.buffer) || (b_tracked && !rb.buffer))
++        return CUDNN_STATUS_BAD_PARAM;
++    if (reinterpret_cast<std::uintptr_t>(x) % alignof(float) != 0 ||
++        reinterpret_cast<std::uintptr_t>(y) % alignof(float) != 0) {
++        return CUDNN_STATUS_BAD_PARAM;
++    }
++    const auto overlaps = [bytes](std::uintptr_t a, std::uintptr_t b) {
++        return a < b ? b - a < bytes : a - b < bytes;
++    };
++    if (x_tracked && y_tracked && rx.buffer == ry.buffer) {
++        if (rx.offset != ry.offset && overlaps(rx.offset, ry.offset))
++            return CUDNN_STATUS_BAD_PARAM;
++    } else if (x != y && overlaps(reinterpret_cast<std::uintptr_t>(x),
++                                 reinterpret_cast<std::uintptr_t>(y))) {
++        return CUDNN_STATUS_BAD_PARAM;
++    }
++
++    cudaStreamCaptureStatus capture_status = cudaStreamCaptureStatusNone;
++    if (cudaStreamIsCapturing(handle->stream, &capture_status) != cudaSuccess)
++        return CUDNN_STATUS_EXECUTION_FAILED;
++    if (capture_status != cudaStreamCaptureStatusNone) return CUDNN_STATUS_NOT_SUPPORTED;
++
++    std::shared_ptr<cumetal::metal_backend::Stream> stream;
++    if (cumetal::rt::resolve_backend_stream(handle->stream, &stream) != cudaSuccess)
++        return CUDNN_STATUS_EXECUTION_FAILED;
++
++    std::vector<KernelArg> args(3);
++    if ((x_tracked && !cumetal::rt::resolve_kernel_buffer_arg(x, bytes, alignof(float), &args[0])) ||
++        (y_tracked && !cumetal::rt::resolve_kernel_buffer_arg(y, bytes, alignof(float), &args[1]))) {
++        return CUDNN_STATUS_BAD_PARAM;
++    }
++    const bool staged = !x_tracked || !y_tracked;
++    if (staged || a_tracked || b_tracked) {
++        const auto status = sync_handle(handle);
++        if (status != CUDNN_STATUS_SUCCESS) return status;
++    }
++    const auto scalar = [](const void* p, bool tracked,
++                           const AllocationTable::ResolvedAllocation& r) {
++        const void* host = tracked
++            ? static_cast<const unsigned char*>(r.buffer->contents()) + r.offset : p;
++        float value;
++        std::memcpy(&value, host, sizeof(value));
++        return value;
++    };
++    const float a = scalar(alpha, a_tracked, ra);
++    const float b = scalar(beta, b_tracked, rb);
++    std::string error;
++    for (std::size_t i = 0; i < 2; ++i) {
++        if ((i == 0 && x_tracked) || (i == 1 && y_tracked)) continue;
++        args[i].kind = KernelArg::Kind::kBuffer;
++        const cudaError_t status = cumetal::metal_backend::allocate_buffer(bytes, &args[i].buffer, &error);
++        if (status != cudaSuccess)
++            return status == cudaErrorMemoryAllocation ? CUDNN_STATUS_ALLOC_FAILED
++                                                       : CUDNN_STATUS_EXECUTION_FAILED;
++        if (i == 0 || b != 0.0f) {
++            std::memcpy(args[i].buffer->contents(), i == 0 ? x : y, bytes);
++        }
++    }
++
++    const std::uint32_t spatial = static_cast<std::uint32_t>(desc.h * desc.w);
++    const std::uint32_t columns = mode == CUDNN_SOFTMAX_MODE_CHANNEL
++        ? static_cast<std::uint32_t>(desc.c) : static_cast<std::uint32_t>(desc.c) * spatial;
++    const SoftmaxParams params{columns, spatial,
++        static_cast<std::uint32_t>(mode == CUDNN_SOFTMAX_MODE_CHANNEL),
++        static_cast<std::uint32_t>(algo == CUDNN_SOFTMAX_LOG), a, b};
++    args[2].kind = KernelArg::Kind::kBytes;
++    args[2].bytes.resize(sizeof(params));
++    std::memcpy(args[2].bytes.data(), &params, sizeof(params));
++
++    const auto* source = cumetal::rt::stage_library_kernel_source(
++        "cudnn_softmax_f32", cumetal::rt::kCudnnSoftmaxMsl);
++    if (!source) return CUDNN_STATUS_EXECUTION_FAILED;
++    unsigned threads = 32;
++    while (threads < columns && threads < 256) threads *= 2;
++    cumetal::metal_backend::LaunchConfig config{};
++    config.block = dim3(threads, 1, 1);
++    config.grid = dim3(static_cast<unsigned>(bytes / sizeof(float) / columns), 1, 1);
++    config.provenance = "library_substitution";
++    config.semantic_quality = "tolerance_bounded";
++    if (cumetal::metal_backend::launch_kernel(*source, "cumetal_cudnn_softmax_f32",
++                                             config, args, stream, &error) != cudaSuccess) {
++        CUDNN_DEBUG("softmax Metal launch failed: %s", error.c_str());
++        return CUDNN_STATUS_EXECUTION_FAILED;
++    }
++    if (staged) {
++        if (cumetal::metal_backend::stream_synchronize(stream, &error) != cudaSuccess)
++            return CUDNN_STATUS_EXECUTION_FAILED;
++        if (!y_tracked) std::memcpy(y, args[1].buffer->contents(), bytes);
++    }
++    return CUDNN_STATUS_SUCCESS;
++}
++
+@@ -1341,0 +1455,3 @@ cudnnStatus_t cudnnSoftmaxForward(cudnnHandle_t handle,
++    int count = 0, y_count = 0;
++    if (!tensor_count_int(xDesc, &count) || !tensor_count_int(yDesc, &y_count))
++        return CUDNN_STATUS_BAD_PARAM;
+@@ -1354,52 +1470,2 @@ cudnnStatus_t cudnnSoftmaxForward(cudnnHandle_t handle,
+-    cudnnStatus_t sync_status = sync_handle(handle);
+-    if (sync_status != CUDNN_STATUS_SUCCESS) return sync_status;
+-    float a = *static_cast<const float*>(alpha);
+-    float b = *static_cast<const float*>(beta);
+-    const float* xf = static_cast<const float*>(x);
+-    float* yf = static_cast<float*>(y);
+-
+-    int N = xDesc->n, C = xDesc->c, H = xDesc->h, W = xDesc->w;
+-
+-    if (mode == CUDNN_SOFTMAX_MODE_INSTANCE) {
+-        int spatial = C * H * W;
+-        for (int n = 0; n < N; ++n) {
+-            const float* src = xf + n * spatial;
+-            float* dst = yf + n * spatial;
+-            float maxval = *std::max_element(src, src + spatial);
+-            float sum = 0.0f;
+-            for (int i = 0; i < spatial; ++i) sum += std::exp(src[i] - maxval);
+-            if (algo == CUDNN_SOFTMAX_LOG) {
+-                float logsum = std::log(sum);
+-                for (int i = 0; i < spatial; ++i)
+-                    dst[i] = a * (src[i] - maxval - logsum) + b * dst[i];
+-            } else {
+-                for (int i = 0; i < spatial; ++i)
+-                    dst[i] = a * (std::exp(src[i] - maxval) / sum) + b * dst[i];
+-            }
+-        }
+-@UPSTREAM_LINE=1380@
+-        for (int n = 0; n < N; ++n) {
+-            for (int h = 0; h < H; ++h) {
+-                for (int w = 0; w < W; ++w) {
+-                    float maxval = -1e30f;
+-                    for (int c = 0; c < C; ++c) {
+-                        int idx = ((n * C + c) * H + h) * W + w;
+-                        maxval = std::max(maxval, xf[idx]);
+-                    }
+-                    float sum = 0.0f;
+-                    for (int c = 0; c < C; ++c) {
+-                        int idx = ((n * C + c) * H + h) * W + w;
+-                        sum += std::exp(xf[idx] - maxval);
+-                    }
+-                    for (int c = 0; c < C; ++c) {
+-                        int idx = ((n * C + c) * H + h) * W + w;
+-                        if (algo == CUDNN_SOFTMAX_LOG)
+-                            yf[idx] = a * (xf[idx] - maxval - std::log(sum)) + b * yf[idx];
+-                        else
+-                            yf[idx] = a * (std::exp(xf[idx] - maxval) / sum) + b * yf[idx];
+-                    }
+-                }
+-            }
+-        }
+-    }
+-    return CUDNN_STATUS_SUCCESS;
++    return softmax_metal(handle, *xDesc, mode, algo, alpha, x, beta, y,
++                         static_cast<std::size_t>(count) * sizeof(float));
+diff --git a/runtime/rt/cudnn_softmax_msl.h b/runtime/rt/cudnn_softmax_msl.h
+new file mode 100644
+index 0000000..a10bf7d
+--- /dev/null
++++ b/runtime/rt/cudnn_softmax_msl.h
+@@ -0,0 +1,76 @@
++#pragma once
++
++#include <string_view>
++
++namespace cumetal::rt {
++
++inline constexpr std::string_view kCudnnSoftmaxMsl = R"MSL(
++struct CudnnSoftmaxParams {
++    uint columns;
++    uint spatial;
++    uint channel_mode;
++    uint logarithmic;
++    float alpha;
++    float beta;
++};
++
++kernel void cumetal_cudnn_softmax_f32(
++    const device float* x [[buffer(0)]],
++    device float* y [[buffer(1)]],
++    constant CudnnSoftmaxParams& p [[buffer(2)]],
++    uint3 group [[threadgroup_position_in_grid]],
++    uint tid [[thread_index_in_threadgroup]],
++    uint lane [[thread_index_in_simdgroup]],
++    uint warp [[simdgroup_index_in_threadgroup]],
++    uint3 threads [[threads_per_threadgroup]]) {
++    const uint stride = p.channel_mode ? p.spatial : 1;
++    const ulong base = p.channel_mode
++        ? ulong(group.x / p.spatial) * p.columns * p.spatial + group.x % p.spatial
++        : ulong(group.x) * p.columns;
++    const uint warps = threads.x / 32;
++    threadgroup float partials[8];
++
++    float maximum = -INFINITY;
++    for (uint i = tid; i < p.columns; i += threads.x) {
++        maximum = max(maximum, x[base + ulong(i) * stride]);
++    }
++    maximum = simd_max(maximum);
++    if (lane == 0) partials[warp] = maximum;
++    threadgroup_barrier(mem_flags::mem_threadgroup);
++    if (warp == 0) {
++        const float candidate = lane < warps ? partials[lane] : -INFINITY;
++        const float reduced = simd_max(candidate);
++        if (lane == 0) partials[0] = reduced;
++    }
++    threadgroup_barrier(mem_flags::mem_threadgroup);
++    maximum = partials[0];
++    threadgroup_barrier(mem_flags::mem_threadgroup);
++
++    float sum = 0.0f;
++    for (uint i = tid; i < p.columns; i += threads.x) {
++        sum += exp(x[base + ulong(i) * stride] - maximum);
++    }
++    sum = simd_sum(sum);
++    if (lane == 0) partials[warp] = sum;
++    threadgroup_barrier(mem_flags::mem_threadgroup);
++    if (warp == 0) {
++        const float candidate = lane < warps ? partials[lane] : 0.0f;
++        const float reduced = simd_sum(candidate);
++        if (lane == 0) partials[0] = reduced;
++    }
++    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
++    sum = partials[0];
++    const float normalizer = p.logarithmic ? log(sum) : 1.0f / sum;
++
++    for (uint i = tid; i < p.columns; i += threads.x) {
++        const ulong index = base + ulong(i) * stride;
++        const float shifted = x[index] - maximum;
++        const float value = p.logarithmic ? shifted - normalizer
++                                          : exp(shifted) * normalizer;
++        if (p.beta == 0.0f) y[index] = p.alpha * value;
++        else y[index] = p.alpha * value + p.beta * y[index];
++    }
++}
++)MSL";
++
++}
+diff --git a/tools/cumetal/main.cpp b/tools/cumetal/main.cpp
+index 3f7b8d3..f1424cd 100644
+--- a/tools/cumetal/main.cpp
++++ b/tools/cumetal/main.cpp
+@@ -103 +103 @@ void print_usage(const char *argv0) {
+-            << "  " << name << " run <program> [args...]\n"
++            << "  " << name << " run [--ptx] [--] <program> [args...]\n"
+@@ -104,0 +105,5 @@ void print_usage(const char *argv0) {
++            << "Run options:\n"
++            << "  --ptx  Use the supported PTX runtime compiler path.\n"
++            << "         Defaults to software IEEE64; disables workload substitutions\n"
++            << "         and llm.c CPU emulation. Library calls may have separate CPU paths.\n"
++            << "  --     Treat the next argument as the program name.\n\n"
+@@ -274 +279,9 @@ int run_program(int argc, char **argv) {
+-  if (argc < 3) {
++  int program_index = 2;
++  const bool ptx = argc > program_index &&
++                   std::string_view(argv[program_index]) == "--ptx";
++  if (ptx)
++    ++program_index;
++  if (argc > program_index &&
++      std::string_view(argv[program_index]) == "--")
++    ++program_index;
++  if (argc <= program_index) {
+@@ -295 +308,28 @@ int run_program(int argc, char **argv) {
+-  execvp(argv[2], &argv[2]);
++  if (ptx) {
++    setenv("CUMETAL_DRIVER_JIT", "runtime-msl", 1);
++    setenv("CUMETAL_PTX_BACKEND", "cumetal-ir", 1);
++    setenv("CUMETAL_ENABLE_WORKLOAD_SPECIALIZATIONS", "0", 1);
++    setenv("CUMETAL_ENABLE_LLMC_CPU_EMULATION", "0", 1);
++    setenv("CUMETAL_DISABLE_LLMC_EMULATION", "1", 1);
++    if (const char *compiler = std::getenv("CUMETAL_NVRTC_COMPILER");
++        compiler == nullptr || compiler[0] == '\0') {
++      const std::string compiler_path = (layout.bin_dir / "cumetalc").string();
++      setenv("CUMETAL_NVRTC_COMPILER", compiler_path.c_str(), 1);
++    }
++    if (const char *precision = std::getenv("CUMETAL_FP64_MODE");
++        precision == nullptr || precision[0] == '\0') {
++      setenv("CUMETAL_FP64_MODE", "ieee64", 1);
++    }
++    if (const char *sdk = std::getenv("SDKROOT");
++        sdk == nullptr || sdk[0] == '\0') {
++      const CommandResult found = run_capture(
++          "/usr/bin/xcrun --sdk macosx --show-sdk-path 2>/dev/null");
++      std::error_code error;
++      if (found.exit_code == 0 && !found.output.empty() &&
++          std::filesystem::is_directory(found.output, error)) {
++        setenv("SDKROOT", found.output.c_str(), 1);
++      }
++    }
++  }
++
++  execvp(argv[program_index], &argv[program_index]);

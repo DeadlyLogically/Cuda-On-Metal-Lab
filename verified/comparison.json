@@ -1,0 +1,18 @@
+{
+  "status": "identical on M2 and T4",
+  "file_cases": 36,
+  "elements": 207472,
+  "extra_in_memory_cases": 9,
+  "baseline": "cuLaunchKernel returned 1",
+  "unsupported": "atomicSum+0xa0: RED.E.ADD.F32.FTZ.RN.STRONG.GPU; zero launches",
+  "sha256_lifter": "7486129f9f1f9a8a99855504b4b7ebd0c8416ba22c6b42f50f57150143e46d4b",
+  "sha256_runtime": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+  "t4_hardware": "Tesla T4, 7.5, 580.82.07",
+  "warm_latency_us": {
+    "M2": 254.583,
+    "T4": 12.968,
+    "ratio": 19.631631708821715,
+    "scope": "host wall microseconds from one cuLaunchKernel through cuCtxSynchronize; inputs on GPU, no file load, transfer or trace",
+    "observations_per_device": 51
+  }
+}

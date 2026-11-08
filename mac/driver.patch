@@ -1,0 +1,132 @@
+diff --git a/runtime/driver/cuda_driver.cpp b/runtime/driver/cuda_driver.cpp
+index b3674be..389e424 100644
+--- a/runtime/driver/cuda_driver.cpp
++++ b/runtime/driver/cuda_driver.cpp
+@@ -18,0 +19,6 @@
++#include <mach/mach.h>
++#include <mach/mach_vm.h>
++#include <cerrno>
++#include <crt_externs.h>
++#include <spawn.h>
++#include <sys/wait.h>
+@@ -1988,0 +1995,95 @@ CUresult cuModuleGetGlobal(CUdeviceptr* dptr, size_t* bytes,
++bool is_cuda_elf_file(const char* filename) {
++    unsigned char header[20] = {};
++    std::ifstream file(filename, std::ios::binary);
++    return file.read(reinterpret_cast<char*>(header), sizeof(header)) &&
++           std::memcmp(header, "\177ELF", 4) == 0 && header[4] == 2 &&
++           header[5] == 1 && header[18] == 190 && header[19] == 0;
++}
++
++CUresult load_sass_bytes(CUmodule* module, const std::vector<std::uint8_t>& bytes,
++                         const char* lifter) {
++    if (bytes.empty() || bytes.size() > kMaxImageBytes) return CUDA_ERROR_INVALID_IMAGE;
++    std::error_code error;
++    const auto system_tmp = std::filesystem::temp_directory_path(error);
++    if (error) return CUDA_ERROR_UNKNOWN;
++    std::string pattern = (system_tmp / "cumetal-sass-XXXXXX").string();
++    if (::mkdtemp(pattern.data()) == nullptr) return CUDA_ERROR_UNKNOWN;
++    struct Scratch {
++        std::filesystem::path path;
++        ~Scratch() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
++    } scratch{pattern};
++    const auto binary = (scratch.path / "module.cubin").string();
++    const auto translated = (scratch.path / "module.ptx").string();
++    std::string message;
++    if (!cumetal::common::write_file_bytes(binary, bytes, &message)) return CUDA_ERROR_UNKNOWN;
++
++    const char* python = std::getenv("CUMETAL_SASS_PYTHON");
++    if (python == nullptr || *python == '\0') python = "python3";
++    std::vector<std::string> arguments{python, lifter, binary, "-o", translated};
++    const char* disassembler = std::getenv("CUMETAL_SASS_NVDISASM");
++    if (disassembler != nullptr && *disassembler != '\0') {
++        arguments.emplace_back("--nvdisasm");
++        arguments.emplace_back(disassembler);
++    }
++    std::vector<char*> argv;
++    for (auto& arg : arguments) argv.push_back(arg.data());
++    argv.push_back(nullptr);
++    pid_t pid;
++    if (::posix_spawnp(&pid, python, nullptr, nullptr, argv.data(), *_NSGetEnviron()) != 0)
++        return CUDA_ERROR_JIT_COMPILER_NOT_FOUND;
++    int status = 0;
++    pid_t reaped;
++    do { reaped = ::waitpid(pid, &status, 0); } while (reaped == -1 && errno == EINTR);
++    if (reaped == -1) return CUDA_ERROR_UNKNOWN;
++    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return CUDA_ERROR_NOT_SUPPORTED;
++    const auto size = std::filesystem::file_size(translated, error);
++    if (error || size == 0 || size > kMaxImageBytes) return CUDA_ERROR_INVALID_IMAGE;
++    const auto ptx = cumetal::common::read_file_bytes(translated, &message);
++    if (ptx.size() != size) return CUDA_ERROR_INVALID_IMAGE;
++    if (cumetal::diag_env_truthy("CUMETAL_TRACE_GPU")) {
++        std::fprintf(stderr, "CUMETAL_SASS input=cuda_elf bytes=%zu lifted_ptx_bytes=%zu\n",
++                     bytes.size(), ptx.size());
++    }
++    return create_runtime_ptx_module(std::string(ptx.begin(), ptx.end()), module);
++}
++
++enum class SassImageKind { other, cubin, invalid };
++static SassImageKind snapshot_sass_image(const void* opaque, std::vector<std::uint8_t>& bytes) {
++    const auto base = reinterpret_cast<mach_vm_address_t>(opaque);
++    auto read = [&](std::uint64_t off, void* out, std::size_t len) {
++        if (off > kMaxImageBytes || len > kMaxImageBytes - off ||
++            base > UINT64_MAX - (off + len)) return false;
++        mach_vm_size_t actual = 0;
++        return mach_vm_read_overwrite(mach_task_self(), base+off, len,
++                 reinterpret_cast<mach_vm_address_t>(out), &actual) == KERN_SUCCESS && actual == len;
++    };
++    std::uint8_t h[64] = {};
++    if (!read(0,h,4)) return SassImageKind::invalid;
++    if (std::memcmp(h,"\177ELF",4)) return SassImageKind::other;
++    if (!read(0,h,sizeof(h))) return SassImageKind::invalid;
++    if (h[4]!=2 || h[5]!=1 || h[18]!=190 || h[19]!=0) return SassImageKind::other;
++    auto u16=[](const std::uint8_t* p){std::uint16_t v; std::memcpy(&v,p,2); return v;};
++    auto u32=[](const std::uint8_t* p){std::uint32_t v; std::memcpy(&v,p,4); return v;};
++    auto u64=[](const std::uint8_t* p){std::uint64_t v; std::memcpy(&v,p,8); return v;};
++    std::uint64_t end=64;
++    auto span=[&](std::uint64_t off, std::uint64_t len){
++        if (off>kMaxImageBytes || len>kMaxImageBytes-off) return false;
++        end=std::max(end,off+len); return true;
++    };
++    if (u16(h+52)!=64 || u16(h+58)!=64 || !u16(h+60) || u16(h+62)>=u16(h+60))
++        return SassImageKind::invalid;
++    const auto sh=u64(h+40), ph=u64(h+32);
++    const auto ns=u16(h+60), np=u16(h+56);
++    if (!span(sh,std::uint64_t(ns)*64) || (np && (u16(h+54)!=56 || !span(ph,std::uint64_t(np)*56))))
++        return SassImageKind::invalid;
++    std::uint8_t rec[64];
++    for (std::uint32_t i=0;i<ns;i++) {
++        if (!read(sh+64ull*i,rec,64)) return SassImageKind::invalid;
++        if (u32(rec+4)!=8 && !span(u64(rec+24),u64(rec+32))) return SassImageKind::invalid;
++    }
++    for (std::uint32_t i=0;i<np;i++) {
++        if (!read(ph+56ull*i,rec,56) || !span(u64(rec+8),u64(rec+32))) return SassImageKind::invalid;
++    }
++    bytes.resize(static_cast<std::size_t>(end));
++    return read(0,bytes.data(),bytes.size()) ? SassImageKind::cubin : SassImageKind::invalid;
++}
+@@ -2004,0 +2106,10 @@ CUresult cuModuleLoad(CUmodule* module, const char* fname) {
++    const char* lifter = std::getenv("CUMETAL_SASS_LIFTER");
++    if (runtime_msl_driver_jit_enabled() && lifter && *lifter && is_cuda_elf_file(fname)) {
++        std::error_code error;
++        const auto size = std::filesystem::file_size(fname, error);
++        if (error || size == 0 || size > kMaxImageBytes) return CUDA_ERROR_INVALID_IMAGE;
++        std::string message;
++        const auto bytes = cumetal::common::read_file_bytes(fname, &message);
++        if (bytes.size() != size) return CUDA_ERROR_INVALID_IMAGE;
++        return load_sass_bytes(module, bytes, lifter);
++    }
+@@ -2088,0 +2200,13 @@ CUresult cuModuleLoadData(CUmodule* module, const void* image) {
++    const char* sass_lifter = std::getenv("CUMETAL_SASS_LIFTER");
++    if (runtime_msl_driver_jit_enabled() && sass_lifter && *sass_lifter) {
++        std::vector<std::uint8_t> bytes;
++        const auto kind = snapshot_sass_image(image, bytes);
++        if (kind == SassImageKind::invalid) return CUDA_ERROR_INVALID_IMAGE;
++        if (kind == SassImageKind::cubin) {
++            std::string embedded;
++            if (cumetal::fatbin::extract_elf_ptx(bytes.data(), bytes.size(), &embedded) ==
++                cumetal::fatbin::ElfPtxStatus::kFound) return create_runtime_ptx_module(embedded, module);
++            return load_sass_bytes(module, bytes, sass_lifter);
++        }
++    }
++
