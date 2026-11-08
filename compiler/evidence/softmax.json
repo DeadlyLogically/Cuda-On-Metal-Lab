@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "expected_launches": 240,
+  "provenance_records": 240,
+  "numeric_summary": {
+    "launches": 240,
+    "values": 3352992,
+    "max_abs_error": 9.20917603286e-08,
+    "max_row_sum_error": 1.3429589707e-06
+  },
+  "first_provenance_record": "CUMETAL_PROVENANCE event=kernel_launch kernel=\"_Z23softmax_forward_kernel2PfPKfii\" source=generic_ptx provenance=generic_ptx_lowering semantic_quality=exact device=apple_gpu device_name=\"Apple M2\" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=17375 grid=(7,1,1) block=(32,1,1) unsupported_reason=\"\"",
+  "binary_sha256": "d64fe7825cff6954f13b2fbd09c469bc7c9a9c46a6d1c6e3f91d44eea284a6d1"
+}

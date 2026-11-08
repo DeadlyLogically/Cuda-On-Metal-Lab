@@ -1,0 +1,73 @@
+{
+  "project": "karpathy/llm.c",
+  "source": "train_gpt2_fp32.cu",
+  "commit": "f1e2ace651495b74ae22d45d1723443fd00ecd3a",
+  "source_sha256": "93a993ded0f64a70b3d3961d7837acdeed963080b35a2794e219bbc496a5f478",
+  "training_input_sha256": "fcb36e7d424d5ac2d02d05cb3690daaa9f5c99a8888819dd2dea6e5124c44471",
+  "model": "GPT-2 124M",
+  "batch_size": 2,
+  "sequence_length": 64,
+  "steps_per_run": 3,
+  "runs": [
+    {
+      "device": "M2",
+      "run": 1,
+      "step_ms": [
+        1050.145,
+        347.309,
+        316.484
+      ],
+      "initial_and_final_validation_loss": [
+        5.218614,
+        3.741146
+      ],
+      "reported_cublas_tf32_setting": "enabled"
+    },
+    {
+      "device": "M2",
+      "run": 2,
+      "step_ms": [
+        886.589,
+        331.613,
+        320.03
+      ],
+      "initial_and_final_validation_loss": [
+        5.218614,
+        3.741147
+      ],
+      "reported_cublas_tf32_setting": "enabled"
+    },
+    {
+      "device": "M2",
+      "run": 3,
+      "step_ms": [
+        1181.523,
+        334.033,
+        314.891
+      ],
+      "initial_and_final_validation_loss": [
+        5.218614,
+        3.741148
+      ],
+      "reported_cublas_tf32_setting": "enabled"
+    },
+    {
+      "device": "Tesla T4",
+      "run": 1,
+      "step_ms": [
+        66.808479,
+        58.119064,
+        54.259501
+      ],
+      "initial_and_final_validation_loss": [
+        5.218614,
+        3.741523
+      ],
+      "reported_cublas_tf32_setting": "disabled"
+    }
+  ],
+  "median_of_steps_2_and_3_ms": {
+    "M2": 325.8215,
+    "Tesla T4": 56.189282500000004
+  }
+}

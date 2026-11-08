@@ -1,0 +1,604 @@
+runtime_version(&version) => 0
+original-runtime-version=13000
+cudaMalloc-source=/original/libcudart.so.13.0.96
+LOOKUP  version=0 flags=0 -> missing
+LOOKUP cuInit version=2000 flags=0 -> found
+LOOKUP cuGetProcAddress version=11030 flags=0 -> found
+LOOKUP cuGetProcAddress version=12000 flags=0 -> found
+LOOKUP cuDeviceGet version=2000 flags=0 -> found
+LOOKUP cuDeviceGetCount version=2000 flags=0 -> found
+LOOKUP cuDeviceGetName version=2000 flags=0 -> found
+LOOKUP cuDeviceTotalMem version=3020 flags=0 -> found
+LOOKUP cuDeviceGetAttribute version=2000 flags=0 -> found
+LOOKUP cuDeviceGetP2PAttribute version=8000 flags=0 -> missing
+LOOKUP cuDeviceGetHostAtomicCapabilities version=13000 flags=0 -> missing
+LOOKUP cuDeviceGetP2PAtomicCapabilities version=13000 flags=0 -> missing
+LOOKUP cuDriverGetVersion version=2020 flags=0 -> found
+LOOKUP cuDeviceGetByPCIBusId version=4010 flags=0 -> missing
+LOOKUP cuDeviceGetPCIBusId version=4010 flags=0 -> missing
+LOOKUP cuDeviceGetUuid version=9020 flags=0 -> found
+LOOKUP cuDeviceGetTexture1DLinearMaxWidth version=11010 flags=0 -> missing
+LOOKUP cuDeviceGetDefaultMemPool version=11020 flags=0 -> missing
+LOOKUP cuDeviceSetMemPool version=11020 flags=0 -> missing
+LOOKUP cuDeviceGetMemPool version=11020 flags=0 -> missing
+LOOKUP cuFlushGPUDirectRDMAWrites version=11030 flags=0 -> missing
+LOOKUP cuDevicePrimaryCtxRetain version=7000 flags=0 -> found
+LOOKUP cuDevicePrimaryCtxRelease version=7000 flags=0 -> found
+LOOKUP cuDevicePrimaryCtxSetFlags version=11000 flags=0 -> found
+LOOKUP cuDevicePrimaryCtxGetState version=7000 flags=0 -> found
+LOOKUP cuDevicePrimaryCtxReset version=7000 flags=0 -> missing
+LOOKUP cuCtxCreate version=3020 flags=0 -> missing
+LOOKUP cuCtxGetFlags version=7000 flags=0 -> missing
+LOOKUP cuCtxSetCurrent version=4000 flags=0 -> found
+LOOKUP cuCtxGetCurrent version=4000 flags=0 -> found
+LOOKUP cuCtxDetach version=2000 flags=0 -> missing
+LOOKUP cuCtxGetApiVersion version=3020 flags=0 -> missing
+LOOKUP cuCtxGetDevice version=2000 flags=0 -> found
+LOOKUP cuCtxGetDevice version=13000 flags=0 -> found
+LOOKUP cuCtxGetLimit version=3010 flags=0 -> missing
+LOOKUP cuCtxSetLimit version=3010 flags=0 -> missing
+LOOKUP cuCtxGetCacheConfig version=3020 flags=0 -> missing
+LOOKUP cuCtxSetCacheConfig version=3020 flags=0 -> missing
+LOOKUP cuCtxGetSharedMemConfig version=4020 flags=0 -> missing
+LOOKUP cuCtxGetStreamPriorityRange version=5050 flags=0 -> missing
+LOOKUP cuCtxSetSharedMemConfig version=4020 flags=0 -> missing
+LOOKUP cuCtxSynchronize version=2000 flags=0 -> found
+LOOKUP cuCtxSynchronize version=13000 flags=0 -> found
+LOOKUP cuCtxResetPersistingL2Cache version=11000 flags=0 -> missing
+LOOKUP cuCtxPopCurrent version=4000 flags=0 -> missing
+LOOKUP cuCtxPushCurrent version=4000 flags=0 -> missing
+LOOKUP cuModuleLoad version=2000 flags=0 -> missing
+LOOKUP cuModuleLoadData version=2000 flags=0 -> found
+LOOKUP cuModuleLoadFatBinary version=2000 flags=0 -> missing
+LOOKUP cuModuleUnload version=2000 flags=0 -> found
+LOOKUP cuModuleGetFunction version=2000 flags=0 -> found
+LOOKUP cuModuleGetGlobal version=3020 flags=0 -> missing
+LOOKUP cuModuleGetTexRef version=2000 flags=0 -> missing
+LOOKUP cuModuleGetSurfRef version=3000 flags=0 -> missing
+LOOKUP cuModuleGetLoadingMode version=11070 flags=0 -> found
+LOOKUP cuLibraryLoadData version=12000 flags=0 -> missing
+LOOKUP cuLibraryLoadFromFile version=12000 flags=0 -> missing
+LOOKUP cuLibraryUnload version=12000 flags=0 -> missing
+LOOKUP cuLibraryGetKernel version=12000 flags=0 -> missing
+LOOKUP cuLibraryGetModule version=12000 flags=0 -> missing
+LOOKUP cuKernelGetFunction version=12000 flags=0 -> missing
+LOOKUP cuLibraryGetGlobal version=12000 flags=0 -> missing
+LOOKUP cuLibraryGetManaged version=12000 flags=0 -> missing
+LOOKUP cuLibraryGetUnifiedFunction version=12000 flags=0 -> missing
+LOOKUP cuLibraryGetKernelCount version=12040 flags=0 -> missing
+LOOKUP cuLibraryEnumerateKernels version=12040 flags=0 -> missing
+LOOKUP cuKernelGetAttribute version=12000 flags=0 -> missing
+LOOKUP cuKernelSetAttribute version=12000 flags=0 -> missing
+LOOKUP cuKernelSetCacheConfig version=12000 flags=0 -> missing
+LOOKUP cuKernelGetName version=12030 flags=0 -> missing
+LOOKUP cuKernelGetParamInfo version=12040 flags=0 -> missing
+LOOKUP cuLinkCreate version=5050 flags=0 -> missing
+LOOKUP cuLinkAddData version=5050 flags=0 -> missing
+LOOKUP cuLinkAddFile version=5050 flags=0 -> missing
+LOOKUP cuLinkComplete version=5050 flags=0 -> missing
+LOOKUP cuLinkDestroy version=5050 flags=0 -> missing
+LOOKUP cuMemGetInfo version=3020 flags=0 -> missing
+LOOKUP cuMemAllocManaged version=6000 flags=0 -> missing
+LOOKUP cuMemAlloc version=3020 flags=0 -> found
+LOOKUP cuMemAllocPitch version=3020 flags=0 -> missing
+LOOKUP cuMemFree version=3020 flags=0 -> found
+LOOKUP cuMemGetAddressRange version=3020 flags=0 -> missing
+LOOKUP cuMemFreeHost version=2000 flags=0 -> missing
+LOOKUP cuMemHostAlloc version=2020 flags=0 -> missing
+LOOKUP cuMemHostGetDevicePointer version=3020 flags=0 -> missing
+LOOKUP cuMemHostGetFlags version=2030 flags=0 -> missing
+LOOKUP cuMemHostRegister version=6050 flags=0 -> missing
+LOOKUP cuMemHostUnregister version=4000 flags=0 -> missing
+LOOKUP cuPointerGetAttribute version=4000 flags=0 -> missing
+LOOKUP cuPointerGetAttributes version=7000 flags=0 -> missing
+LOOKUP cuMemAllocAsync version=11020 flags=0 -> missing
+LOOKUP cuMemAllocAsync version=11020 flags=2 -> missing
+LOOKUP cuMemAllocFromPoolAsync version=11020 flags=0 -> missing
+LOOKUP cuMemAllocFromPoolAsync version=11020 flags=2 -> missing
+LOOKUP cuMemFreeAsync version=11020 flags=0 -> missing
+LOOKUP cuMemFreeAsync version=11020 flags=2 -> missing
+LOOKUP cuMemPoolTrimTo version=11020 flags=0 -> missing
+LOOKUP cuMemPoolSetAttribute version=11020 flags=0 -> missing
+LOOKUP cuMemPoolGetAttribute version=11020 flags=0 -> missing
+LOOKUP cuMemPoolSetAccess version=11020 flags=0 -> missing
+LOOKUP cuMemPoolGetAccess version=11020 flags=0 -> missing
+LOOKUP cuMemPoolCreate version=11020 flags=0 -> missing
+LOOKUP cuMemPoolDestroy version=11020 flags=0 -> missing
+LOOKUP cuMemPoolExportToShareableHandle version=11020 flags=0 -> missing
+LOOKUP cuMemPoolImportFromShareableHandle version=11020 flags=0 -> missing
+LOOKUP cuMemPoolExportPointer version=11020 flags=0 -> missing
+LOOKUP cuMemPoolImportPointer version=11020 flags=0 -> missing
+LOOKUP cuMemGetDefaultMemPool version=13000 flags=0 -> missing
+LOOKUP cuMemGetMemPool version=13000 flags=0 -> missing
+LOOKUP cuMemSetMemPool version=13000 flags=0 -> missing
+LOOKUP cuMemcpy version=4000 flags=0 -> missing
+LOOKUP cuMemcpy version=7000 flags=2 -> missing
+LOOKUP cuMemcpyAsync version=4000 flags=0 -> missing
+LOOKUP cuMemcpyAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpyPeer version=4000 flags=0 -> missing
+LOOKUP cuMemcpyPeer version=7000 flags=2 -> missing
+LOOKUP cuMemcpyPeerAsync version=4000 flags=0 -> missing
+LOOKUP cuMemcpyPeerAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpyHtoD version=3020 flags=0 -> found
+LOOKUP cuMemcpyHtoD version=7000 flags=2 -> found
+LOOKUP cuMemcpyHtoDAsync version=3020 flags=0 -> missing
+LOOKUP cuMemcpyHtoDAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpyDtoH version=3020 flags=0 -> found
+LOOKUP cuMemcpyDtoH version=7000 flags=2 -> found
+LOOKUP cuMemcpyDtoHAsync version=3020 flags=0 -> missing
+LOOKUP cuMemcpyDtoHAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpyDtoD version=3020 flags=0 -> missing
+LOOKUP cuMemcpyDtoD version=7000 flags=2 -> missing
+LOOKUP cuMemcpyDtoDAsync version=3020 flags=0 -> missing
+LOOKUP cuMemcpyDtoDAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpy2DUnaligned version=3020 flags=0 -> missing
+LOOKUP cuMemcpy2DUnaligned version=7000 flags=2 -> missing
+LOOKUP cuMemcpy2DAsync version=3020 flags=0 -> missing
+LOOKUP cuMemcpy2DAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpy3D version=3020 flags=0 -> missing
+LOOKUP cuMemcpy3D version=7000 flags=2 -> missing
+LOOKUP cuMemcpy3DAsync version=3020 flags=0 -> missing
+LOOKUP cuMemcpy3DAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpy3DPeer version=4000 flags=0 -> missing
+LOOKUP cuMemcpy3DPeer version=7000 flags=2 -> missing
+LOOKUP cuMemcpy3DPeerAsync version=4000 flags=0 -> missing
+LOOKUP cuMemcpy3DPeerAsync version=7000 flags=2 -> missing
+LOOKUP cuMemcpyBatchAsync version=13000 flags=0 -> missing
+LOOKUP cuMemcpyBatchAsync version=13000 flags=2 -> missing
+LOOKUP cuMemcpy3DBatchAsync version=13000 flags=0 -> missing
+LOOKUP cuMemcpy3DBatchAsync version=13000 flags=2 -> missing
+LOOKUP cuMemcpyBatchAsync version=12080 flags=0 -> missing
+LOOKUP cuMemcpyBatchAsync version=12080 flags=2 -> missing
+LOOKUP cuMemcpy3DBatchAsync version=12080 flags=0 -> missing
+LOOKUP cuMemcpy3DBatchAsync version=12080 flags=2 -> missing
+LOOKUP cuMemsetD8 version=3020 flags=0 -> missing
+LOOKUP cuMemsetD8 version=7000 flags=2 -> missing
+LOOKUP cuMemsetD8Async version=3020 flags=0 -> missing
+LOOKUP cuMemsetD8Async version=7000 flags=2 -> missing
+LOOKUP cuMemsetD2D8 version=3020 flags=0 -> missing
+LOOKUP cuMemsetD2D8 version=7000 flags=2 -> missing
+LOOKUP cuMemsetD2D8Async version=3020 flags=0 -> missing
+LOOKUP cuMemsetD2D8Async version=7000 flags=2 -> missing
+LOOKUP cuFuncSetCacheConfig version=3000 flags=0 -> missing
+LOOKUP cuFuncSetSharedMemConfig version=4020 flags=0 -> missing
+LOOKUP cuFuncGetAttribute version=2020 flags=0 -> missing
+LOOKUP cuFuncSetAttribute version=9000 flags=0 -> missing
+LOOKUP cuFuncGetName version=12030 flags=0 -> missing
+LOOKUP cuFuncGetParamInfo version=12040 flags=0 -> missing
+LOOKUP cuArrayCreate version=3020 flags=0 -> missing
+LOOKUP cuArrayGetDescriptor version=3020 flags=0 -> missing
+LOOKUP cuArrayGetSparseProperties version=11010 flags=0 -> missing
+LOOKUP cuArrayGetPlane version=11020 flags=0 -> missing
+LOOKUP cuArray3DCreate version=3020 flags=0 -> missing
+LOOKUP cuArray3DGetDescriptor version=3020 flags=0 -> missing
+LOOKUP cuArrayDestroy version=2000 flags=0 -> missing
+LOOKUP cuMipmappedArrayCreate version=5000 flags=0 -> missing
+LOOKUP cuMipmappedArrayGetLevel version=5000 flags=0 -> missing
+LOOKUP cuMipmappedArrayGetSparseProperties version=11010 flags=0 -> missing
+LOOKUP cuMipmappedArrayDestroy version=5000 flags=0 -> missing
+LOOKUP cuArrayGetMemoryRequirements version=11060 flags=0 -> missing
+LOOKUP cuMipmappedArrayGetMemoryRequirements version=11060 flags=0 -> missing
+LOOKUP cuTexObjectCreate version=5000 flags=0 -> missing
+LOOKUP cuTexObjectDestroy version=5000 flags=0 -> missing
+LOOKUP cuTexObjectGetResourceDesc version=5000 flags=0 -> missing
+LOOKUP cuTexObjectGetTextureDesc version=5000 flags=0 -> missing
+LOOKUP cuTexObjectGetResourceViewDesc version=5000 flags=0 -> missing
+LOOKUP cuSurfObjectCreate version=5000 flags=0 -> missing
+LOOKUP cuSurfObjectDestroy version=5000 flags=0 -> missing
+LOOKUP cuSurfObjectGetResourceDesc version=5000 flags=0 -> missing
+LOOKUP cuImportExternalMemory version=10000 flags=0 -> missing
+LOOKUP cuExternalMemoryGetMappedBuffer version=10000 flags=0 -> missing
+LOOKUP cuExternalMemoryGetMappedMipmappedArray version=10000 flags=0 -> missing
+LOOKUP cuDestroyExternalMemory version=10000 flags=0 -> missing
+LOOKUP cuImportExternalSemaphore version=10000 flags=0 -> missing
+LOOKUP cuSignalExternalSemaphoresAsync version=10000 flags=0 -> missing
+LOOKUP cuSignalExternalSemaphoresAsync version=10000 flags=2 -> missing
+LOOKUP cuWaitExternalSemaphoresAsync version=10000 flags=0 -> missing
+LOOKUP cuWaitExternalSemaphoresAsync version=10000 flags=2 -> missing
+LOOKUP cuDestroyExternalSemaphore version=10000 flags=0 -> missing
+LOOKUP cuDeviceGetNvSciSyncAttributes version=10020 flags=0 -> missing
+LOOKUP cuLaunchKernel version=4000 flags=0 -> found
+LOOKUP cuLaunchKernel version=7000 flags=2 -> found
+LOOKUP cuLaunchCooperativeKernel version=9000 flags=0 -> missing
+LOOKUP cuLaunchCooperativeKernel version=9000 flags=2 -> missing
+LOOKUP cuLaunchHostFunc version=10000 flags=0 -> missing
+LOOKUP cuLaunchHostFunc version=10000 flags=2 -> missing
+LOOKUP cuLaunchKernelEx version=11060 flags=0 -> missing
+LOOKUP cuLaunchKernelEx version=11060 flags=2 -> missing
+LOOKUP cuEventCreate version=2000 flags=0 -> missing
+LOOKUP cuEventRecord version=2000 flags=0 -> missing
+LOOKUP cuEventRecord version=7000 flags=2 -> missing
+LOOKUP cuEventRecordWithFlags version=11010 flags=0 -> missing
+LOOKUP cuEventRecordWithFlags version=11010 flags=2 -> missing
+LOOKUP cuEventQuery version=2000 flags=0 -> missing
+LOOKUP cuEventSynchronize version=2000 flags=0 -> missing
+LOOKUP cuEventDestroy version=4000 flags=0 -> missing
+LOOKUP cuEventElapsedTime version=2000 flags=0 -> missing
+LOOKUP cuEventElapsedTime version=12080 flags=0 -> missing
+LOOKUP cuStreamWaitValue32 version=8000 flags=0 -> missing
+LOOKUP cuStreamWaitValue32 version=8000 flags=2 -> missing
+LOOKUP cuStreamWriteValue32 version=8000 flags=0 -> missing
+LOOKUP cuStreamWriteValue32 version=8000 flags=2 -> missing
+LOOKUP cuStreamWaitValue64 version=9000 flags=0 -> missing
+LOOKUP cuStreamWaitValue64 version=9000 flags=2 -> missing
+LOOKUP cuStreamWriteValue64 version=9000 flags=0 -> missing
+LOOKUP cuStreamWriteValue64 version=9000 flags=2 -> missing
+LOOKUP cuStreamBatchMemOp version=8000 flags=0 -> missing
+LOOKUP cuStreamBatchMemOp version=8000 flags=2 -> missing
+LOOKUP cuStreamCreate version=2000 flags=0 -> missing
+LOOKUP cuStreamCreateWithPriority version=5050 flags=0 -> missing
+LOOKUP cuStreamGetPriority version=5050 flags=0 -> missing
+LOOKUP cuStreamGetPriority version=7000 flags=2 -> missing
+LOOKUP cuStreamGetFlags version=5050 flags=0 -> missing
+LOOKUP cuStreamGetDevice version=12080 flags=0 -> missing
+LOOKUP cuStreamGetDevice version=12080 flags=2 -> missing
+LOOKUP cuStreamGetCtx version=9020 flags=0 -> missing
+LOOKUP cuStreamGetFlags version=7000 flags=2 -> missing
+LOOKUP cuStreamGetId version=12000 flags=0 -> missing
+LOOKUP cuStreamGetId version=12000 flags=2 -> missing
+LOOKUP cuStreamDestroy version=4000 flags=0 -> missing
+LOOKUP cuStreamWaitEvent version=3020 flags=0 -> missing
+LOOKUP cuStreamWaitEvent version=7000 flags=2 -> missing
+LOOKUP cuStreamAddCallback version=5000 flags=0 -> missing
+LOOKUP cuStreamAddCallback version=7000 flags=2 -> missing
+LOOKUP cuStreamSynchronize version=2000 flags=0 -> missing
+LOOKUP cuStreamSynchronize version=7000 flags=2 -> missing
+LOOKUP cuStreamQuery version=2000 flags=0 -> missing
+LOOKUP cuStreamQuery version=7000 flags=2 -> missing
+LOOKUP cuStreamAttachMemAsync version=6000 flags=0 -> missing
+LOOKUP cuStreamAttachMemAsync version=7000 flags=2 -> missing
+LOOKUP cuStreamCopyAttributes version=11000 flags=0 -> missing
+LOOKUP cuStreamCopyAttributes version=11000 flags=2 -> missing
+LOOKUP cuStreamGetAttribute version=11000 flags=0 -> missing
+LOOKUP cuStreamGetAttribute version=11000 flags=2 -> missing
+LOOKUP cuStreamSetAttribute version=11000 flags=0 -> missing
+LOOKUP cuStreamSetAttribute version=11000 flags=2 -> missing
+LOOKUP cuDeviceCanAccessPeer version=4000 flags=0 -> missing
+LOOKUP cuCtxEnablePeerAccess version=4000 flags=0 -> missing
+LOOKUP cuCtxDisablePeerAccess version=4000 flags=0 -> missing
+LOOKUP cuIpcGetEventHandle version=4010 flags=0 -> missing
+LOOKUP cuIpcOpenEventHandle version=4010 flags=0 -> missing
+LOOKUP cuIpcGetMemHandle version=4010 flags=0 -> missing
+LOOKUP cuIpcOpenMemHandle version=4010 flags=0 -> missing
+LOOKUP cuIpcOpenMemHandle version=11000 flags=0 -> missing
+LOOKUP cuIpcCloseMemHandle version=4010 flags=0 -> missing
+LOOKUP cuGLCtxCreate version=3020 flags=0 -> missing
+LOOKUP cuGLInit version=2000 flags=0 -> missing
+LOOKUP cuGLGetDevices version=4010 flags=0 -> missing
+LOOKUP cuGLRegisterBufferObject version=2000 flags=0 -> missing
+LOOKUP cuGLMapBufferObject version=3020 flags=0 -> missing
+LOOKUP cuGLMapBufferObject version=7000 flags=2 -> missing
+LOOKUP cuGLMapBufferObjectAsync version=3020 flags=0 -> missing
+LOOKUP cuGLMapBufferObjectAsync version=7000 flags=2 -> missing
+LOOKUP cuGLUnmapBufferObject version=2000 flags=0 -> missing
+LOOKUP cuGLUnmapBufferObjectAsync version=2030 flags=0 -> missing
+LOOKUP cuGLUnregisterBufferObject version=2000 flags=0 -> missing
+LOOKUP cuGLSetBufferObjectMapFlags version=2030 flags=0 -> missing
+LOOKUP cuGraphicsGLRegisterImage version=3000 flags=0 -> missing
+LOOKUP cuGraphicsGLRegisterBuffer version=3000 flags=0 -> missing
+LOOKUP cuGraphicsEGLRegisterImage version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamConsumerConnect version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamConsumerDisconnect version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamConsumerAcquireFrame version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamConsumerReleaseFrame version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamProducerConnect version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamProducerDisconnect version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamProducerPresentFrame version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamProducerReturnFrame version=7000 flags=0 -> missing
+LOOKUP cuGraphicsResourceGetMappedEglFrame version=7000 flags=0 -> missing
+LOOKUP cuEGLStreamConsumerConnectWithFlags version=8000 flags=0 -> missing
+LOOKUP cuEventCreateFromEGLSync version=9000 flags=0 -> missing
+LOOKUP cuGraphicsUnregisterResource version=3000 flags=0 -> missing
+LOOKUP cuGraphicsMapResources version=3000 flags=0 -> missing
+LOOKUP cuGraphicsMapResources version=7000 flags=2 -> missing
+LOOKUP cuGraphicsUnmapResources version=3000 flags=0 -> missing
+LOOKUP cuGraphicsUnmapResources version=7000 flags=2 -> missing
+LOOKUP cuGraphicsResourceSetMapFlags version=6050 flags=0 -> missing
+LOOKUP cuGraphicsSubResourceGetMappedArray version=3000 flags=0 -> missing
+LOOKUP cuGraphicsResourceGetMappedMipmappedArray version=5000 flags=0 -> missing
+LOOKUP cuGraphicsResourceGetMappedPointer version=3020 flags=0 -> missing
+LOOKUP cuProfilerInitialize version=4000 flags=0 -> missing
+LOOKUP cuProfilerStart version=4000 flags=0 -> missing
+LOOKUP cuProfilerStop version=4000 flags=0 -> missing
+LOOKUP cuVDPAUGetDevice version=3010 flags=0 -> missing
+LOOKUP cuVDPAUCtxCreate version=3020 flags=0 -> missing
+LOOKUP cuGraphicsVDPAURegisterVideoSurface version=3010 flags=0 -> missing
+LOOKUP cuGraphicsVDPAURegisterOutputSurface version=3010 flags=0 -> missing
+LOOKUP cuGetExportTable version=3000 flags=0 -> found
+LOOKUP cuOccupancyMaxActiveBlocksPerMultiprocessorWithFlags version=7000 flags=0 -> missing
+LOOKUP cuOccupancyAvailableDynamicSMemPerBlock version=10020 flags=0 -> missing
+LOOKUP cuOccupancyMaxPotentialClusterSize version=11070 flags=0 -> missing
+LOOKUP cuOccupancyMaxActiveClusters version=11070 flags=0 -> missing
+LOOKUP cuMemAdvise version=8000 flags=0 -> missing
+LOOKUP cuMemPrefetchAsync version=8000 flags=0 -> missing
+LOOKUP cuMemPrefetchAsync version=8000 flags=2 -> missing
+LOOKUP cuMemAdvise version=12020 flags=0 -> missing
+LOOKUP cuMemPrefetchAsync version=12020 flags=0 -> missing
+LOOKUP cuMemPrefetchAsync version=12020 flags=2 -> missing
+LOOKUP cuMemPrefetchBatchAsync version=13000 flags=0 -> missing
+LOOKUP cuMemPrefetchBatchAsync version=13000 flags=2 -> missing
+LOOKUP cuMemDiscardBatchAsync version=13000 flags=0 -> missing
+LOOKUP cuMemDiscardBatchAsync version=13000 flags=2 -> missing
+LOOKUP cuMemDiscardAndPrefetchBatchAsync version=13000 flags=0 -> missing
+LOOKUP cuMemDiscardAndPrefetchBatchAsync version=13000 flags=2 -> missing
+LOOKUP cuMemRangeGetAttribute version=8000 flags=0 -> missing
+LOOKUP cuMemRangeGetAttributes version=8000 flags=0 -> missing
+LOOKUP cuGetErrorString version=6000 flags=0 -> missing
+LOOKUP cuGetErrorName version=6000 flags=0 -> missing
+LOOKUP cuGraphCreate version=10000 flags=0 -> missing
+LOOKUP cuGraphAddKernelNode version=12000 flags=0 -> missing
+LOOKUP cuGraphKernelNodeGetParams version=12000 flags=0 -> missing
+LOOKUP cuGraphKernelNodeSetParams version=12000 flags=0 -> missing
+LOOKUP cuGraphAddMemcpyNode version=10000 flags=0 -> missing
+LOOKUP cuGraphMemcpyNodeGetParams version=10000 flags=0 -> missing
+LOOKUP cuGraphMemcpyNodeSetParams version=10000 flags=0 -> missing
+LOOKUP cuGraphAddMemsetNode version=10000 flags=0 -> missing
+LOOKUP cuGraphMemsetNodeGetParams version=10000 flags=0 -> missing
+LOOKUP cuGraphMemsetNodeSetParams version=10000 flags=0 -> missing
+LOOKUP cuGraphAddHostNode version=10000 flags=0 -> missing
+LOOKUP cuGraphHostNodeGetParams version=10000 flags=0 -> missing
+LOOKUP cuGraphHostNodeSetParams version=10000 flags=0 -> missing
+LOOKUP cuGraphAddChildGraphNode version=10000 flags=0 -> missing
+LOOKUP cuGraphChildGraphNodeGetGraph version=10000 flags=0 -> missing
+LOOKUP cuGraphAddEmptyNode version=10000 flags=0 -> missing
+LOOKUP cuGraphAddEventRecordNode version=11010 flags=0 -> missing
+LOOKUP cuGraphEventRecordNodeGetEvent version=11010 flags=0 -> missing
+LOOKUP cuGraphEventRecordNodeSetEvent version=11010 flags=0 -> missing
+LOOKUP cuGraphAddEventWaitNode version=11010 flags=0 -> missing
+LOOKUP cuGraphEventWaitNodeGetEvent version=11010 flags=0 -> missing
+LOOKUP cuGraphEventWaitNodeSetEvent version=11010 flags=0 -> missing
+LOOKUP cuGraphAddExternalSemaphoresSignalNode version=11020 flags=0 -> missing
+LOOKUP cuGraphExternalSemaphoresSignalNodeGetParams version=11020 flags=0 -> missing
+LOOKUP cuGraphExternalSemaphoresSignalNodeSetParams version=11020 flags=0 -> missing
+LOOKUP cuGraphAddExternalSemaphoresWaitNode version=11020 flags=0 -> missing
+LOOKUP cuGraphExternalSemaphoresWaitNodeGetParams version=11020 flags=0 -> missing
+LOOKUP cuGraphExternalSemaphoresWaitNodeSetParams version=11020 flags=0 -> missing
+LOOKUP cuGraphExecExternalSemaphoresSignalNodeSetParams version=11020 flags=0 -> missing
+LOOKUP cuGraphExecExternalSemaphoresWaitNodeSetParams version=11020 flags=0 -> missing
+LOOKUP cuGraphAddMemAllocNode version=11040 flags=0 -> missing
+LOOKUP cuGraphMemAllocNodeGetParams version=11040 flags=0 -> missing
+LOOKUP cuGraphAddMemFreeNode version=11040 flags=0 -> missing
+LOOKUP cuGraphMemFreeNodeGetParams version=11040 flags=0 -> missing
+LOOKUP cuDeviceGraphMemTrim version=11040 flags=0 -> missing
+LOOKUP cuDeviceGetGraphMemAttribute version=11040 flags=0 -> missing
+LOOKUP cuDeviceSetGraphMemAttribute version=11040 flags=0 -> missing
+LOOKUP cuGraphClone version=10000 flags=0 -> missing
+LOOKUP cuGraphNodeFindInClone version=10000 flags=0 -> missing
+LOOKUP cuGraphNodeGetType version=10000 flags=0 -> missing
+LOOKUP cuGraphGetNodes version=10000 flags=0 -> missing
+LOOKUP cuGraphGetRootNodes version=10000 flags=0 -> missing
+LOOKUP cuGraphGetEdges version=10000 flags=0 -> missing
+LOOKUP cuGraphGetEdges version=12030 flags=0 -> missing
+LOOKUP cuGraphNodeGetDependencies version=10000 flags=0 -> missing
+LOOKUP cuGraphNodeGetDependencies version=12030 flags=0 -> missing
+LOOKUP cuGraphNodeGetDependentNodes version=10000 flags=0 -> missing
+LOOKUP cuGraphNodeGetDependentNodes version=12030 flags=0 -> missing
+LOOKUP cuGraphAddDependencies version=10000 flags=0 -> missing
+LOOKUP cuGraphAddDependencies version=12030 flags=0 -> missing
+LOOKUP cuGraphRemoveDependencies version=10000 flags=0 -> missing
+LOOKUP cuGraphRemoveDependencies version=12030 flags=0 -> missing
+LOOKUP cuGraphDestroyNode version=10000 flags=0 -> missing
+LOOKUP cuGraphInstantiate version=10000 flags=0 -> missing
+LOOKUP cuGraphInstantiate version=11000 flags=0 -> missing
+LOOKUP cuGraphInstantiateWithFlags version=11040 flags=0 -> missing
+LOOKUP cuGraphUpload version=11010 flags=0 -> missing
+LOOKUP cuGraphUpload version=11010 flags=2 -> missing
+LOOKUP cuGraphLaunch version=10000 flags=0 -> missing
+LOOKUP cuGraphLaunch version=10000 flags=2 -> missing
+LOOKUP cuGraphExecDestroy version=10000 flags=0 -> missing
+LOOKUP cuGraphDestroy version=10000 flags=0 -> missing
+LOOKUP cuStreamBeginCapture version=10000 flags=0 -> missing
+LOOKUP cuStreamBeginCapture version=10000 flags=2 -> missing
+LOOKUP cuStreamBeginCapture version=10010 flags=0 -> missing
+LOOKUP cuStreamBeginCapture version=10010 flags=2 -> missing
+LOOKUP cuStreamBeginCaptureToGraph version=12030 flags=0 -> missing
+LOOKUP cuStreamBeginCaptureToGraph version=12030 flags=2 -> missing
+LOOKUP cuStreamEndCapture version=10000 flags=0 -> missing
+LOOKUP cuStreamEndCapture version=10000 flags=2 -> missing
+LOOKUP cuStreamIsCapturing version=10000 flags=0 -> missing
+LOOKUP cuStreamIsCapturing version=10000 flags=2 -> missing
+LOOKUP cuStreamGetCaptureInfo version=10010 flags=0 -> missing
+LOOKUP cuStreamGetCaptureInfo version=10010 flags=2 -> missing
+LOOKUP cuStreamGetCaptureInfo version=11030 flags=0 -> missing
+LOOKUP cuStreamGetCaptureInfo version=11030 flags=2 -> missing
+LOOKUP cuStreamGetCaptureInfo version=12030 flags=0 -> missing
+LOOKUP cuStreamGetCaptureInfo version=12030 flags=2 -> missing
+LOOKUP cuStreamUpdateCaptureDependencies version=11030 flags=0 -> missing
+LOOKUP cuStreamUpdateCaptureDependencies version=11030 flags=2 -> missing
+LOOKUP cuStreamUpdateCaptureDependencies version=12030 flags=0 -> missing
+LOOKUP cuStreamUpdateCaptureDependencies version=12030 flags=2 -> missing
+LOOKUP cuGraphExecKernelNodeSetParams version=12000 flags=0 -> missing
+LOOKUP cuGraphExecMemcpyNodeSetParams version=10020 flags=0 -> missing
+LOOKUP cuGraphExecMemsetNodeSetParams version=10020 flags=0 -> missing
+LOOKUP cuGraphExecHostNodeSetParams version=10020 flags=0 -> missing
+LOOKUP cuGraphExecChildGraphNodeSetParams version=11010 flags=0 -> missing
+LOOKUP cuGraphExecEventRecordNodeSetEvent version=11010 flags=0 -> missing
+LOOKUP cuGraphExecEventWaitNodeSetEvent version=11010 flags=0 -> missing
+LOOKUP cuThreadExchangeStreamCaptureMode version=10010 flags=0 -> missing
+LOOKUP cuGraphExecUpdate version=12000 flags=0 -> missing
+LOOKUP cuGraphKernelNodeCopyAttributes version=11000 flags=0 -> missing
+LOOKUP cuGraphKernelNodeGetAttribute version=11000 flags=0 -> missing
+LOOKUP cuGraphKernelNodeSetAttribute version=11000 flags=0 -> missing
+LOOKUP cuGraphDebugDotPrint version=11030 flags=0 -> missing
+LOOKUP cuUserObjectCreate version=11030 flags=0 -> missing
+LOOKUP cuUserObjectRetain version=11030 flags=0 -> missing
+LOOKUP cuUserObjectRelease version=11030 flags=0 -> missing
+LOOKUP cuGraphRetainUserObject version=11030 flags=0 -> missing
+LOOKUP cuGraphReleaseUserObject version=11030 flags=0 -> missing
+LOOKUP cuGraphNodeSetEnabled version=11060 flags=0 -> missing
+LOOKUP cuGraphNodeGetEnabled version=11060 flags=0 -> missing
+LOOKUP cuGraphInstantiateWithParams version=12000 flags=0 -> missing
+LOOKUP cuGraphInstantiateWithParams version=12000 flags=2 -> missing
+LOOKUP cuGraphExecGetFlags version=12000 flags=0 -> missing
+LOOKUP cuGraphAddNode version=12020 flags=0 -> missing
+LOOKUP cuGraphAddNode version=12030 flags=0 -> missing
+LOOKUP cuGraphNodeSetParams version=12020 flags=0 -> missing
+LOOKUP cuGraphExecNodeSetParams version=12020 flags=0 -> missing
+LOOKUP cuGraphConditionalHandleCreate version=12030 flags=0 -> missing
+LOOKUP cuDeviceRegisterAsyncNotification version=12040 flags=0 -> missing
+LOOKUP cuDeviceUnregisterAsyncNotification version=12040 flags=0 -> missing
+LOOKUP cuLogsRegisterCallback version=12090 flags=0 -> missing
+LOOKUP cuLogsUnregisterCallback version=12090 flags=0 -> missing
+LOOKUP cuLogsCurrent version=12090 flags=0 -> missing
+LOOKUP cuLogsDumpToFile version=12090 flags=0 -> missing
+LOOKUP cuLogsDumpToMemory version=12090 flags=0 -> missing
+cuGetExportTable f8cff95121468b4eb9e2fb469e7c0dd9 -> 801
+DRIVER experimental_guest_abi=13000
+BRIDGE INIT status=0
+cuGetExportTable 6bd5fb6c5bf4e74a8987d93912fd9df9 -> 0
+cuGetExportTable a094798c2e742e7493f20800200c0a66 -> 0
+BRIDGE NAME status=0
+BRIDGE TOTAL status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+GUEST ATTR 40 -> 0 virtual capability
+BRIDGE ATTR status=0
+GUEST ATTR 18 -> 1 virtual capability
+GUEST ATTR 19 -> 0 virtual capability
+GUEST ATTR 21 -> 0 virtual capability
+GUEST ATTR 77 -> 0 virtual capability
+GUEST ATTR 22 -> 0 virtual capability
+GUEST ATTR 23 -> 0 virtual capability
+GUEST ATTR 73 -> 0 virtual capability
+GUEST ATTR 74 -> 0 virtual capability
+GUEST ATTR 70 -> 0 virtual capability
+GUEST ATTR 71 -> 0 virtual capability
+GUEST ATTR 72 -> 0 virtual capability
+GUEST ATTR 45 -> 0 virtual capability
+GUEST ATTR 46 -> 0 virtual capability
+GUEST ATTR 24 -> 0 virtual capability
+GUEST ATTR 25 -> 0 virtual capability
+GUEST ATTR 26 -> 0 virtual capability
+GUEST ATTR 47 -> 0 virtual capability
+GUEST ATTR 48 -> 0 virtual capability
+GUEST ATTR 49 -> 0 virtual capability
+GUEST ATTR 52 -> 0 virtual capability
+GUEST ATTR 42 -> 0 virtual capability
+GUEST ATTR 43 -> 0 virtual capability
+GUEST ATTR 27 -> 0 virtual capability
+GUEST ATTR 28 -> 0 virtual capability
+GUEST ATTR 29 -> 0 virtual capability
+GUEST ATTR 53 -> 0 virtual capability
+GUEST ATTR 54 -> 0 virtual capability
+GUEST ATTR 55 -> 0 virtual capability
+GUEST ATTR 56 -> 0 virtual capability
+GUEST ATTR 57 -> 0 virtual capability
+GUEST ATTR 58 -> 0 virtual capability
+GUEST ATTR 59 -> 0 virtual capability
+GUEST ATTR 60 -> 0 virtual capability
+GUEST ATTR 61 -> 0 virtual capability
+GUEST ATTR 62 -> 0 virtual capability
+GUEST ATTR 63 -> 0 virtual capability
+GUEST ATTR 64 -> 0 virtual capability
+GUEST ATTR 65 -> 0 virtual capability
+GUEST ATTR 66 -> 0 virtual capability
+GUEST ATTR 67 -> 0 virtual capability
+GUEST ATTR 68 -> 0 virtual capability
+GUEST ATTR 31 -> 0 virtual capability
+GUEST ATTR 32 -> 0 virtual capability
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+GUEST ATTR 35 -> 0 virtual capability
+GUEST ATTR 41 -> 0 virtual capability
+GUEST ATTR 37 -> 0 virtual capability
+GUEST ATTR 38 -> 0 virtual capability
+GUEST ATTR 108 -> 0 virtual capability
+BRIDGE ATTR status=0
+GUEST ATTR 30 -> 0 virtual capability
+GUEST ATTR 51 -> 0 virtual capability
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+GUEST ATTR 11 -> 0 virtual capability
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+GUEST ATTR 3 -> 1 virtual capability
+GUEST ATTR 4 -> 1 virtual capability
+BRIDGE ATTR status=0
+GUEST ATTR 6 -> 1 virtual capability
+GUEST ATTR 7 -> 1 virtual capability
+GUEST ATTR 9 -> 0 virtual capability
+GUEST ATTR 14 -> 0 virtual capability
+GUEST ATTR 78 -> 0 virtual capability
+GUEST ATTR 79 -> 0 virtual capability
+GUEST ATTR 80 -> 0 virtual capability
+GUEST ATTR 83 -> 0 virtual capability
+GUEST ATTR 84 -> 0 virtual capability
+GUEST ATTR 85 -> 0 virtual capability
+GUEST ATTR 86 -> 0 virtual capability
+GUEST ATTR 88 -> 0 virtual capability
+GUEST ATTR 89 -> 0 virtual capability
+GUEST ATTR 90 -> 0 virtual capability
+GUEST ATTR 91 -> 0 virtual capability
+GUEST ATTR 95 -> 0 virtual capability
+GUEST ATTR 100 -> 0 virtual capability
+GUEST ATTR 101 -> 0 virtual capability
+BRIDGE UUID status=0
+BRIDGE ATTR status=0
+GUEST ATTR 109 -> 0 virtual capability
+GUEST ATTR 111 -> 0 virtual capability
+GUEST ATTR 99 -> 0 virtual capability
+GUEST ATTR 112 -> 0 virtual capability
+GUEST ATTR 113 -> 0 virtual capability
+GUEST ATTR 114 -> 0 virtual capability
+GUEST ATTR 115 -> 0 virtual capability
+GUEST ATTR 116 -> 0 virtual capability
+GUEST ATTR 117 -> 0 virtual capability
+GUEST ATTR 118 -> 0 virtual capability
+GUEST ATTR 119 -> 0 virtual capability
+GUEST ATTR 120 -> 0 virtual capability
+GUEST ATTR 121 -> 0 virtual capability
+GUEST ATTR 125 -> 0 virtual capability
+GUEST ATTR 129 -> 0 virtual capability
+GUEST ATTR 130 -> 0 virtual capability
+GUEST ATTR 131 -> -1 virtual capability
+GUEST ATTR 133 -> 0 virtual capability
+GUEST ATTR 134 -> -1 virtual capability
+GUEST ATTR 139 -> 0 virtual capability
+GUEST ATTR 140 -> 0 virtual capability
+GUEST ATTR 143 -> 0 virtual capability
+cuGetExportTable 42d85a8123f6cb478298f6e78a3aecdc -> 0
+cuGetExportTable c693336e1121df11a8c368f355d89593 -> 0
+cuGetExportTable 263e88607cd2614392f6bbd5006dfa7e -> 0
+cuGetExportTable d4082055bde6704b8d34ba123c66e1f2 -> 0
+DRIVER experimental_guest_abi=13000
+BRIDGE UUID status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ATTR status=0
+BRIDGE ALLOC status=0
+runtime_alloc(&da,sizeof a) => 0
+BRIDGE H2D status=0
+runtime_copy(da,a,sizeof a,1) => 0
+BRIDGE D2H status=0
+runtime_copy(values,da,sizeof a,2) => 0
+original-runtime-copy-verified
+BRIDGE ALLOC status=0
+runtime_alloc(&db,sizeof b) => 0
+BRIDGE ALLOC status=0
+runtime_alloc(&dc,sizeof values) => 0
+BRIDGE H2D status=0
+runtime_copy(db,b,sizeof b,1) => 0
+BRIDGE LOAD status=0
+cuModuleLoadData(&module,ptx) => 0
+BRIDGE GET status=0
+cuModuleGetFunction(&fn,module,"bridge_add") => 0
+BRIDGE LAUNCH status=0
+cuLaunchKernel(fn,1,1,1,3,1,1,0,NULL,params,NULL) => 0
+BRIDGE SYNC status=0
+cuCtxSynchronize() => 0
+BRIDGE UNLOAD status=0
+cuModuleUnload(module) => 0
+BRIDGE D2H status=0
+runtime_copy(values,dc,sizeof values,2) => 0
+value=[5,7,9]
+BRIDGE FREE status=0
+runtime_free(dc) => 0
+BRIDGE FREE status=0
+runtime_free(db) => 0
+BRIDGE FREE status=0
+runtime_free(da) => 0

@@ -1,0 +1,22 @@
+{
+  "program": "layernorm",
+  "mode": "sweep",
+  "passed": true,
+  "expected_cases": 111,
+  "expected_launches": 111,
+  "records": 111,
+  "provenances": [
+    "generic_ptx_lowering"
+  ],
+  "numeric_summary": {
+    "cases": "111",
+    "launches": "111",
+    "values": "213219",
+    "max_out_error": "4.0118423339e-07",
+    "max_mean_error": "1.70298984914e-08",
+    "max_rstd_error": "2.48426610483e-05"
+  },
+  "first_record": "CUMETAL_PROVENANCE event=kernel_launch kernel=\"_Z25layernorm_forward_kernel3PfS_S_PKfS1_S1_ii\" source=generic_ptx provenance=generic_ptx_lowering semantic_quality=exact device=apple_gpu device_name=\"Apple M2\" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=12874 grid=(7,1,1) block=(32,1,1) unsupported_reason=\"\"",
+  "binary_sha256": "7e0285a08cf971c1388a17c7510a5ceb749fd4d2f92b0e9777a1b1f1f7701374",
+  "runtime_sha256": "cb4cb11a59774ba14b391c0ac12bb8f87381b0c300ddaf14e2ef4ab386212206"
+}

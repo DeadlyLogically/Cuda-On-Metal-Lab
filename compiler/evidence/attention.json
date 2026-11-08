@@ -1,0 +1,24 @@
+{
+  "program": "attention",
+  "mode": "sweep",
+  "passed": true,
+  "expected_cases": 72,
+  "expected_launches": 216,
+  "records": 216,
+  "provenances": [
+    "generic_ptx_lowering",
+    "generic_ptx_lowering_fp64_ieee64"
+  ],
+  "numeric_summary": {
+    "cases": "72",
+    "launches": "216",
+    "values": "839268",
+    "max_score_error": "2.91288468901e-06",
+    "max_weight_error": "5.8066482278e-07",
+    "max_output_error": "8.55615825524e-07",
+    "max_row_sum_error": "4.3144545625e-07"
+  },
+  "first_record": "CUMETAL_PROVENANCE event=kernel_launch kernel=\"_Z27attention_query_key_kernel1PfPKfiiii\" source=generic_ptx provenance=generic_ptx_lowering_fp64_ieee64 semantic_quality=exact device=apple_gpu device_name=\"Apple M2\" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=38083 grid=(1,1,1) block=(32,1,1) unsupported_reason=\"\"",
+  "binary_sha256": "80ceb740dbe98f9d5a11d37191c29f3b6c3de6b573fe723f45bb706a0b9c1520",
+  "runtime_sha256": "cb4cb11a59774ba14b391c0ac12bb8f87381b0c300ddaf14e2ef4ab386212206"
+}

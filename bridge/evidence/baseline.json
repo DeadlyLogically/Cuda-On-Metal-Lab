@@ -1,0 +1,8 @@
+{
+  "arch": "aarch64",
+  "sha256": "7bdba2b5b08cbdc85203c41cc94598adedb1bcfea7cb574ca693ac73599e4e63",
+  "origin": "Linux ARM64, original runtime, no CUDA driver bridge",
+  "cudaMalloc": 35,
+  "cuda_error": "CUDA driver version is insufficient for CUDA runtime version",
+  "address": null
+}

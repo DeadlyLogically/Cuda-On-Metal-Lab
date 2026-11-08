@@ -1,0 +1,3 @@
+The experimental runtime profile was informed by the publicly documented export-table layouts and compatibility algorithm in ZLUDA dark_api.
+Reference: https://github.com/vosen/ZLUDA/tree/f4df215edbc3b6698a1c61ef7a8688fdff3872be/dark_api
+See the included upstream license files and the scope in ABI.md.

@@ -1,0 +1,30 @@
+{
+  "warp_commit": "e6c3ba2d54bb048115760b5cd7a4bb2573329ae7",
+  "description": "24 fixed original Warp v1.12.0 tests selected before execution. Every GPU pass requires original numerical assertions and exact generic Apple-GPU provenance.",
+  "cases": [
+    {"case":"triangle","category":"geometry","test":"warp.tests.test_triangle_closest_point.TestTriangleClosestPoint.test_triangle_closest_point_cuda_0"},
+    {"case":"scalar_grad","category":"gradient","test":"warp.tests.test_grad.TestGrad.test_scalar_grad_cuda_0"},
+    {"case":"loop_grad","category":"control-gradient","test":"warp.tests.test_grad.TestGrad.test_for_loop_grad_cuda_0"},
+    {"case":"vec_inplace","category":"vector-gradient","test":"warp.tests.test_vec.TestVec.test_vec_add_inplace_cuda_0"},
+    {"case":"nested_if_grad","category":"control-gradient","test":"warp.tests.test_grad.TestGrad.test_for_loop_nested_if_grad_cuda_0"},
+    {"case":"nested_for_grad","category":"control-gradient","test":"warp.tests.test_grad.TestGrad.test_for_loop_nested_for_grad_cuda_0"},
+    {"case":"preserve_outputs_grad","category":"mutation-gradient","test":"warp.tests.test_grad.TestGrad.test_preserve_outputs_grad_cuda_0"},
+    {"case":"struct_attribute_grad","category":"struct-gradient","test":"warp.tests.test_grad.TestGrad.test_struct_attribute_gradient_cuda_0"},
+    {"case":"scalar_math","category":"math-gradient","test":"warp.tests.test_math.TestMath.test_scalar_math_cuda_0"},
+    {"case":"vec_norm","category":"vector-math","test":"warp.tests.test_math.TestMath.test_vec_norm_cuda_0"},
+    {"case":"smooth_normalize","category":"vector-math","test":"warp.tests.test_math.TestMath.test_smooth_normalize_cuda_0"},
+    {"case":"lower_bound","category":"search-control","test":"warp.tests.test_array.TestArray.test_lower_bound_cuda_0"},
+    {"case":"flatten","category":"array-view-gradient","test":"warp.tests.test_array.TestArray.test_flatten_cuda_0"},
+    {"case":"reshape","category":"array-view-gradient","test":"warp.tests.test_array.TestArray.test_reshape_cuda_0"},
+    {"case":"sum_double","category":"reduction-fp64","test":"warp.tests.test_array_reduce.TestArrayReduce.test_array_sum_double_cuda_0"},
+    {"case":"sum_vec3","category":"reduction-vector","test":"warp.tests.test_array_reduce.TestArrayReduce.test_array_sum_vec3_cuda_0"},
+    {"case":"sum_axis_float","category":"reduction-axis","test":"warp.tests.test_array_reduce.TestArrayReduce.test_array_sum_axis_float_cuda_0"},
+    {"case":"inner_axis_float","category":"dot-product-axis","test":"warp.tests.test_array_reduce.TestArrayReduce.test_array_inner_axis_float_cuda_0"},
+    {"case":"atomic_int","category":"atomic-integer","test":"warp.tests.test_atomic.TestAtomic.test_atomic_int_cuda_0"},
+    {"case":"atomic_float","category":"atomic-float-gradient","test":"warp.tests.test_atomic.TestAtomic.test_atomic_float_cuda_0"},
+    {"case":"atomic_return_int","category":"atomic-return","test":"warp.tests.test_atomic.TestAtomic.test_atomic_return_int_cuda_0"},
+    {"case":"atomic_return_float","category":"atomic-return","test":"warp.tests.test_atomic.TestAtomic.test_atomic_return_float_cuda_0"},
+    {"case":"matrix_math_grad","category":"matrix-gradient","test":"warp.tests.test_grad.TestGrad.test_matrix_math_grad_cuda_0"},
+    {"case":"ifexp_array_access","category":"conditional-memory","test":"warp.tests.test_conditional.TestConditional.test_ifexp_with_array_access_cuda_0"}
+  ]
+}

@@ -1,0 +1,71 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -245,0 +246,1 @@
++    compiler/ptx/src/kernel_abi.cpp
+@@ -277,0 +279,14 @@
++
++include(cmake/EmbedMetalSupport.cmake)
++cumetal_expand_metal_support(
++    "${CMAKE_SOURCE_DIR}/compiler/metal/support/cumetal_fp64_inline_support.metal"
++    CUMETAL_FP64_INLINE_SOURCE)
++cumetal_expand_metal_support(
++    "${CMAKE_SOURCE_DIR}/compiler/metal/support/cumetal_libdevice_support.metal"
++    CUMETAL_LIBDEVICE_SOURCE)
++if(CUMETAL_FP64_INLINE_SOURCE MATCHES "\\)CUMETAL_FP64\"" OR
++   CUMETAL_LIBDEVICE_SOURCE MATCHES "\\)CUMETAL_LIBDEV\"")
++    message(FATAL_ERROR "Bundled Metal source contains its C++ raw-string delimiter")
++endif()
++configure_file(runtime/registration/metal_support_sources.h.in
++    generated/metal_support_sources.h @ONLY)
+@@ -336,0 +352,1 @@
++        ${CMAKE_CURRENT_BINARY_DIR}/generated
+--- a/tests/functional/CMakeLists.txt
++++ b/tests/functional/CMakeLists.txt
+@@ -4,0 +5,17 @@
++
++if(CUMETAL_ENABLE_CUDA_REGISTRATION)
++    add_executable(cumetal_registration_entry_support_test registration_entry_support_test.cpp)
++    target_link_libraries(cumetal_registration_entry_support_test PRIVATE cumetal_runtime)
++    target_compile_options(cumetal_registration_entry_support_test PRIVATE -Wall -Wextra -Wpedantic)
++    add_test(NAME functional_registration_entry_support
++        COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/run_registration_entry_support.py
++                $<TARGET_FILE:cumetal_registration_entry_support_test>)
++    set_tests_properties(functional_registration_entry_support PROPERTIES
++        SKIP_RETURN_CODE 77 TIMEOUT 120 LABELS "gpu;functional")
++endif()
++
++add_test(NAME functional_driver_runtime_msl
++    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/run_driver_runtime_msl.py
++            $<TARGET_FILE:cumetal_runtime>)
++set_tests_properties(functional_driver_runtime_msl PROPERTIES
++    SKIP_RETURN_CODE 77 TIMEOUT 180 LABELS "gpu;functional")
+--- a/tests/unit/CMakeLists.txt
++++ b/tests/unit/CMakeLists.txt
+@@ -805,0 +806,5 @@
++    NAME unit_warp_sweep_harness
++    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/run_warp_sweep_harness_test.py
++)
++
++add_test(
+@@ -817,0 +823,14 @@
++
++if(CUMETAL_PYTHON3_EXECUTABLE)
++add_test(
++    NAME unit_embed_metal_support
++    COMMAND ${CUMETAL_PYTHON3_EXECUTABLE}
++            ${CMAKE_CURRENT_SOURCE_DIR}/run_embed_metal_support_test.py
++            --cmake ${CMAKE_COMMAND}
++            --module ${CMAKE_SOURCE_DIR}/cmake/EmbedMetalSupport.cmake
++            --generator "${CMAKE_GENERATOR}"
++            --make-program "${CMAKE_MAKE_PROGRAM}"
++            --work-root ${CMAKE_CURRENT_BINARY_DIR}
++)
++set_tests_properties(unit_embed_metal_support PROPERTIES TIMEOUT 60)
++endif()
+--- a/scripts/build_llama_cpp_cumetal.sh
++++ b/scripts/build_llama_cpp_cumetal.sh
+@@ -157,0 +158 @@
++NATIVE_TOOLCHAIN="${CUMETAL_ACTIVE_BUILD_DIR}/cuda_toolchain"
+@@ -159 +160 @@
+-export PATH="\${TOOLCHAIN}:\${PATH}"
++export PATH="\${NATIVE_TOOLCHAIN}:\${TOOLCHAIN}:\${PATH}"

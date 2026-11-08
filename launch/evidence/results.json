@@ -1,0 +1,36 @@
+{
+  "scope": "50,000 FP32 elements, 16 dependent SASS vector-add launches, same sm_75 CUBIN on both devices. Microseconds per operation. Six pairs of fresh M2 processes, within-pair order alternated. T4 is one fresh Colab process with nine interleaved trials per mode. No GPU trace enabled for these wall-clock measurements.",
+  "cubin_sha256": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+  "selected_library_sha256": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+  "matching_chain_sha256_including_guards": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+  "wall_us_per_op": {
+    "sync_after_every_op": {
+      "M2_before": 220.219,
+      "M2_after": 215.443,
+      "T4_original": 13.08
+    },
+    "sync_after_16_ops": {
+      "M2_before": 25.697,
+      "M2_after": 22.494,
+      "T4_original": 6.395
+    }
+  },
+  "queued_host_submit_us": {
+    "M2_before": 6.897,
+    "M2_after": 4.136
+  },
+  "other_single_launch_benchmark_median_us": {
+    "M2_before": 179.417,
+    "M2_after": 206.25,
+    "note": "51 isolated warm single launches per process using earlier bench.py; this test did not show a reliable improvement. Independent reruns fluctuated; all raw measurements retained."
+  },
+  "apple_gpu_command_us_separate_traced_run": 13.624500000000001,
+  "end_to_end_post_training_speedup": "not measured for this change",
+  "cross_device_correctness": {
+    "matched_cases": 36,
+    "matched_elements": 207472,
+    "extra_memory_load_cases_on_M2": 9
+  },
+  "t4_raw_sha256": "1ee4f0eec25c38789ba1ebd9a0317ead831cb343bace0a28429b2155c39af6dc",
+  "optimization": "Preload per-entry static threadgroup metadata when the driver creates a private JIT function and reuse that metadata on subsequent launches. Keep normal runtime behavior for public/mutable descriptors. Existing automatic queue batching was already in the baseline."
+}

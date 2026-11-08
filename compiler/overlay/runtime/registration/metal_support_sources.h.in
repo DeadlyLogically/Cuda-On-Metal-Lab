@@ -1,0 +1,10 @@
+#pragma once
+
+namespace cumetal::registration::support {
+inline constexpr char kFp64[] = R"CUMETAL_FP64(
+@CUMETAL_FP64_INLINE_SOURCE@
+)CUMETAL_FP64";
+inline constexpr char kLibdevice[] = R"CUMETAL_LIBDEV(
+@CUMETAL_LIBDEVICE_SOURCE@
+)CUMETAL_LIBDEV";
+}

@@ -1,0 +1,78 @@
+{
+  "device": "Apple M2",
+  "cuMetal_commit": "912694289d5751ff529db94016388744084873b4",
+  "scope": "Fresh build of the released compiler overlay. CUDA harnesses read original pinned llm.c sources. Warp used the previously prepared native Warp/CUB variant and the newly built CuMetal runtime. The released Warp output patch produces the same Python AST as the prepared copy.",
+  "ctest": [
+    "functional_registration_entry_support",
+    "functional_driver_runtime_msl",
+    "unit_cuda_host_qualifiers",
+    "unit_warp_sweep_harness",
+    "unit_embed_metal_support"
+  ],
+  "kernel_sweeps": {
+    "softmax": {
+      "passed": true,
+      "expected_launches": 240,
+      "numeric_summary": {
+        "launches": 240,
+        "values": 3352992,
+        "max_abs_error": 9.20917603286e-08,
+        "max_row_sum_error": 1.3429589707e-06
+      },
+      "provenance_records": 240,
+      "all_records_generic_apple_gpu_success": true
+    },
+    "layernorm": {
+      "passed": true,
+      "expected_cases": 111,
+      "expected_launches": 111,
+      "numeric_summary": {
+        "cases": "111",
+        "launches": "111",
+        "values": "213219",
+        "max_out_error": "4.0118423339e-07",
+        "max_mean_error": "1.70298984914e-08",
+        "max_rstd_error": "2.48426610483e-05"
+      },
+      "records": 111,
+      "provenances": [
+        "generic_ptx_lowering"
+      ]
+    },
+    "attention": {
+      "passed": true,
+      "expected_cases": 72,
+      "expected_launches": 216,
+      "numeric_summary": {
+        "cases": "72",
+        "launches": "216",
+        "values": "839268",
+        "max_score_error": "2.91288468901e-06",
+        "max_weight_error": "5.8066482278e-07",
+        "max_output_error": "8.55615825524e-07",
+        "max_row_sum_error": "4.3144545625e-07"
+      },
+      "records": 216,
+      "provenances": [
+        "generic_ptx_lowering",
+        "generic_ptx_lowering_fp64_ieee64"
+      ]
+    }
+  },
+  "warp": {
+    "passed": true,
+    "test_count": 24,
+    "gpu_launches": 892,
+    "counts": {
+      "pass": 24
+    },
+    "identities": {
+      "launcher_sha256": "93a2acb25182aec481e9643e0bcb9ca3dd23febdd7b909f77f10bd5e87182716",
+      "compiler_sha256": "2c09a2e321ac2d9e7825cbb87a558dc869b75dff7439ba2b9cd2b649870cdda6",
+      "runtime_sha256": "7d9d25767ce07d1dc300fd606ed1336a355038fa6d61d9cbeeb3641ce1bde97d",
+      "warp_native_sha256": "ec43d41f2ad0b1629698ad2ab9d6f29dfac13fc8ecb4e7ac71be4ae23e37ae97"
+    },
+    "unchanged_during_tests": true,
+    "manifest_sha256": "06f91ae50ccc6a7d209a85e187f5c642ef1a032b6a6da3eba71b243bfac5b47d"
+  }
+}

@@ -1,0 +1,188 @@
+{
+  "passed": true,
+  "complete": true,
+  "warp_commit": "e6c3ba2d54bb048115760b5cd7a4bb2573329ae7",
+  "manifest_sha256": "06f91ae50ccc6a7d209a85e187f5c642ef1a032b6a6da3eba71b243bfac5b47d",
+  "manifest_total": 24,
+  "identity": {
+    "launcher_sha256": "ffe24743b84f9d329835c2e0286b1126bc962161a77b964cd397021a1e27f660",
+    "compiler_sha256": "dbd27bf3819f013f6791dd117c849785dca039734bfc001c46424fb67629de54",
+    "runtime_sha256": "42ce0c2c929f55382a6bb684b33fff554b563eb81fb4f11155fc00917007d227",
+    "warp_native_sha256": "ec43d41f2ad0b1629698ad2ab9d6f29dfac13fc8ecb4e7ac71be4ae23e37ae97"
+  },
+  "artifacts_unchanged": true,
+  "counts": {
+    "pass": 24
+  },
+  "gpu_launches": 892,
+  "cases": [
+    {
+      "case": "triangle",
+      "test": "warp.tests.test_triangle_closest_point.TestTriangleClosestPoint.test_triangle_closest_point_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "scalar_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_scalar_grad_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "loop_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_for_loop_grad_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "vec_inplace",
+      "test": "warp.tests.test_vec.TestVec.test_vec_add_inplace_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 8
+    },
+    {
+      "case": "nested_if_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_for_loop_nested_if_grad_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "nested_for_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_for_loop_nested_for_grad_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "preserve_outputs_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_preserve_outputs_grad_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 5
+    },
+    {
+      "case": "struct_attribute_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_struct_attribute_gradient_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "scalar_math",
+      "test": "warp.tests.test_math.TestMath.test_scalar_math_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 6
+    },
+    {
+      "case": "vec_norm",
+      "test": "warp.tests.test_math.TestMath.test_vec_norm_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "smooth_normalize",
+      "test": "warp.tests.test_math.TestMath.test_smooth_normalize_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "lower_bound",
+      "test": "warp.tests.test_array.TestArray.test_lower_bound_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "flatten",
+      "test": "warp.tests.test_array.TestArray.test_flatten_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "reshape",
+      "test": "warp.tests.test_array.TestArray.test_reshape_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "sum_double",
+      "test": "warp.tests.test_array_reduce.TestArrayReduce.test_array_sum_double_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "sum_vec3",
+      "test": "warp.tests.test_array_reduce.TestArrayReduce.test_array_sum_vec3_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "sum_axis_float",
+      "test": "warp.tests.test_array_reduce.TestArrayReduce.test_array_sum_axis_float_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 80
+    },
+    {
+      "case": "inner_axis_float",
+      "test": "warp.tests.test_array_reduce.TestArrayReduce.test_array_inner_axis_float_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 80
+    },
+    {
+      "case": "atomic_int",
+      "test": "warp.tests.test_atomic.TestAtomic.test_atomic_int_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 3
+    },
+    {
+      "case": "atomic_float",
+      "test": "warp.tests.test_atomic.TestAtomic.test_atomic_float_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 9
+    },
+    {
+      "case": "atomic_return_int",
+      "test": "warp.tests.test_atomic.TestAtomic.test_atomic_return_int_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "atomic_return_float",
+      "test": "warp.tests.test_atomic.TestAtomic.test_atomic_return_float_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 1
+    },
+    {
+      "case": "matrix_math_grad",
+      "test": "warp.tests.test_grad.TestGrad.test_matrix_math_grad_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 670
+    },
+    {
+      "case": "ifexp_array_access",
+      "test": "warp.tests.test_conditional.TestConditional.test_ifexp_with_array_access_cuda_0",
+      "status": "pass",
+      "passed": true,
+      "gpu_launches": 2
+    }
+  ]
+}

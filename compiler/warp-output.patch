@@ -1,0 +1,14 @@
+--- a/warp/_src/context.py
++++ b/warp/_src/context.py
+@@ -3812,0 +3813,11 @@
++            if preferred_cuda_output == "ptx" or (
++                preferred_cuda_output is None and warp.config.cuda_output == "ptx"
++            ):
++                return "ptx"
++
++            if (
++                preferred_cuda_output is None
++                and warp.config.cuda_output is None
++                and os.environ.get("CUMETAL_DRIVER_JIT") == "runtime-msl"
++            ):
++                return "ptx"

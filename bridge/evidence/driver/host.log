@@ -1,0 +1,16 @@
+{"session": 1, "op": "INIT", "request_sha256": "4bc8d9c80c29b00daadfbc432102d1320877da5e0dffd56a6a3f9cba88d177fd", "status": "OK", "error": ""}
+{"session": 1, "op": "ALLOC", "request_sha256": "e94cb5f8b79ba60e5dfa84067532381d74f7a554101bb1597f4b2e8be6c328e3", "status": "OK", "error": ""}
+{"session": 1, "op": "ALLOC", "request_sha256": "e94cb5f8b79ba60e5dfa84067532381d74f7a554101bb1597f4b2e8be6c328e3", "status": "OK", "error": ""}
+{"session": 1, "op": "ALLOC", "request_sha256": "e94cb5f8b79ba60e5dfa84067532381d74f7a554101bb1597f4b2e8be6c328e3", "status": "OK", "error": ""}
+{"session": 1, "op": "H2D", "request_sha256": "8ce3ece7bb5c3d0b495d037535bbf5082bd1278ca20d6f8c5eb074355f9b0c99", "status": "OK", "error": ""}
+{"session": 1, "op": "H2D", "request_sha256": "2b96ab778ff5c717b11bd2212b02b95cbc9db1e6927e4d0ad0cf42c2d768512e", "status": "OK", "error": ""}
+{"session": 1, "op": "LOAD", "request_sha256": "58922f8cbff37dd1b11b62c00d44e10759c31416bcd05afc25015c81e378ebba", "status": "OK", "error": ""}
+{"session": 1, "op": "GET", "request_sha256": "50079b0053dc8b096d1b4bf1186cd7c8d3731123f2e2fc7bde44f7facaaad42a", "status": "OK", "error": ""}
+CUMETAL_PROVENANCE event=kernel_launch kernel="bridge_add" source=generic_ptx provenance=generic_ptx_lowering semantic_quality=exact device=apple_gpu device_name="Apple M2" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=7249 grid=(1,1,1) block=(3,1,1) unsupported_reason=""
+{"session": 1, "op": "LAUNCH", "request_sha256": "60c5ba4ea7a7aa0f58d662dd61d130a840efd1895ae91dce37ab2913c38948ce", "status": "OK", "error": ""}
+{"session": 1, "op": "SYNC", "request_sha256": "967d744962b11fc4123910be1a9b16390f2a39695813c074e5f5dcdaa3abc73a", "status": "OK", "error": ""}
+{"session": 1, "op": "UNLOAD", "request_sha256": "225fc3fc777530cd23dc6feec1f3b7e784aa8f5860b28e48a67f25a8cb639c02", "status": "OK", "error": ""}
+{"session": 1, "op": "D2H", "request_sha256": "e0f5f313ec0b917c094452de1c26f8d6849c94217150bf7c213ea1d91a6d64a2", "status": "OK", "error": ""}
+{"session": 1, "op": "FREE", "request_sha256": "edae94b8bc9cceff21d7ac7f57435a0cc28ef801a984b23d81288ef0bd843118", "status": "OK", "error": ""}
+{"session": 1, "op": "FREE", "request_sha256": "0f6dc9e0ae711ba55bf1d8a1959f036c92ca29ec43838a179c7a3d70d229633b", "status": "OK", "error": ""}
+{"session": 1, "op": "FREE", "request_sha256": "fb0995001699679a0867e564de4104fc1c02a420d2536a4e7ba258fc22fa9e92", "status": "OK", "error": ""}

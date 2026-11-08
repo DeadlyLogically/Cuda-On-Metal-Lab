@@ -1,0 +1,86 @@
+{
+  "compiler/cumetalc/main.cpp": {
+    "before": "1977b41baae267b146f9065a9e0203f70c4ee261a57087c3b140a5ece9199e84",
+    "after": "faa59eeb572f2da62e52d16718ccc6e0d47c52f43b3ffa0d94dcd79ba9ba2a87"
+  },
+  "compiler/ptx/include/cumetal/ptx/kernel_abi.h": {
+    "before": null,
+    "after": "1628330eec9780437efed1228cc68a725de548f3be333365bc3e20f1d20a4534"
+  },
+  "compiler/ptx/src/kernel_abi.cpp": {
+    "before": null,
+    "after": "b396cbfb7402f67a6ee84ab9ecf1d682343be8e4ab846225c78008cd210c3345"
+  },
+  "runtime/driver/cuda_driver.cpp": {
+    "before": "3d432de1acef06eb3476686a1588451c40be450f4de4b48d557554ac3db04d93",
+    "after": "4a55bcd5c283138ec6a4660a7d5ec74e5982de73be9e8f071bdc874d51abfb73"
+  },
+  "runtime/metal_backend/metal_backend.mm": {
+    "before": "8cf43c01117818ed13b8eaf63c2aff59ccbd21dea092c3a995be58568fe90fc9",
+    "after": "02c3c3b170ff3463dd04f3227be35914c33a01a113b14ae7bb8e84eda40e4427"
+  },
+  "runtime/registration/registration.cpp": {
+    "before": "1b25cdd811a03edca6de58eea98fcce15491daefa0481d684d28417d3e1058c6",
+    "after": "d40a7c5536f6be4aa1321099b82d2312390bcba82c88faf8b03d75c0f67129dd"
+  },
+  "runtime/registration/metal_support_sources.h.in": {
+    "before": null,
+    "after": "399e64f6e0942ce3987efdc6e453f4552062b400defece9149cf1f9b381ba754"
+  },
+  "runtime/api/cuda_device_runtime_api.h": {
+    "before": "faad954422b80f06c70cb25d8661eb283811db44cab57f9500f9d8e68930a630",
+    "after": "7f26da52219b17fa2dc8c0efdae287958b855de3022fd6f79e565d6da96699ad"
+  },
+  "runtime/api/cuda_runtime.h": {
+    "before": "5a74e40799c18d00fc7bfa8f195c1e0d021322abd9f1b258b3747176736e0451",
+    "after": "23bb85f37fcac1aad83cfceaa73ab77ad483b05c557e1fc8a351cde7b559ed75"
+  },
+  "cmake/EmbedMetalSupport.cmake": {
+    "before": null,
+    "after": "38147c9519ba9a4c575db309c23e468495f683be8d6e5ed0f77c982a07cd2d1d"
+  },
+  "scripts/build_warp_upstream_cub.py": {
+    "before": null,
+    "after": "98d683f84bd87548168d1fbca808c71678f81b5f021bbde8459368423d5983d9"
+  },
+  "tests/functional/registration_entry_support_test.cpp": {
+    "before": null,
+    "after": "992b58493f71f1e3840cbc8db9bfdf82a2ca6ad88a479bf2b82ff185ec771256"
+  },
+  "tests/functional/run_driver_runtime_msl.py": {
+    "before": null,
+    "after": "cc9edfe72fad69980110cd88fb0547251ebcda6067dd4a9d84ca14a3deeaec40"
+  },
+  "tests/functional/run_registration_entry_support.py": {
+    "before": null,
+    "after": "eaeb2251ce2a7824ba7cc47a67725437ae165546d9420a896cf121142c2afa06"
+  },
+  "tests/functional/run_warp_launcher.py": {
+    "before": null,
+    "after": "d2ef12da9c1cf1e69c9508b0feeed6c9323d50f162c8d3db61561fbe1c8ccb1b"
+  },
+  "tests/functional/run_warp_sweep.py": {
+    "before": null,
+    "after": "d8cdedca1adbcb822bee483ac71ef18f77da5a3332fb62a34af042059545fdb1"
+  },
+  "tests/functional/warp_sweep_manifest.json": {
+    "before": null,
+    "after": "06f91ae50ccc6a7d209a85e187f5c642ef1a032b6a6da3eba71b243bfac5b47d"
+  },
+  "tests/unit/cuda_host_qualifiers_test.cpp": {
+    "before": "9d1411add220ad2a5717e6f664cd09ccdb63456aade5064c94ed790c40b61f2b",
+    "after": "0ab02ba91463a5abe8df1d2d42c6ff9db7c00453e7ebf3e901f6c9cb19e0a675"
+  },
+  "tests/unit/run_warp_sweep_harness_test.py": {
+    "before": null,
+    "after": "7bf884985a95e3f086cc6c9f79419b11aa859f8208363d9e9a3356cd3f835263"
+  },
+  "tests/unit/run_embed_metal_support_test.py": {
+    "before": null,
+    "after": "2a69e291563d6d27877633cfeaafee192cf5a595677e26ab4b4c8dadbc214879"
+  },
+  "tools/cumetal/main.cpp": {
+    "before": "086bc783328f0f0bbdd0fd8ee8a660d0d01f2e70e0613fef9bdd0f5ed2cd7423",
+    "after": "558b582d0301ba1c80e519a9dd732effdab6546d80dd475939df28027a8c4679"
+  }
+}

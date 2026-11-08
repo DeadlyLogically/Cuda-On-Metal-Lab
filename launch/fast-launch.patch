@@ -1,0 +1,111 @@
+--- a/runtime/driver/cuda_driver.cpp
++++ b/runtime/driver/cuda_driver.cpp
+@@ -96,6 +96,7 @@
+     CUmod_st* module = nullptr;
+     std::string kernel_name;
+     std::string runtime_msl_path;
++    std::size_t static_shared_bytes = 0;
+     std::uint32_t argument_count = 0;
+     bool has_argument_count = false;
+     std::vector<cumetalKernelArgInfo_t> argument_info;
+@@ -109,6 +110,10 @@
+                                              : function->runtime_msl_path;
+ }
+ 
++extern "C" bool cumetalReadImmutableKernelSharedBytes(const char*, const char*, std::size_t*);
++extern "C" cudaError_t cumetalLaunchKernelWithMetadata(const void*, dim3, dim3, void**,
++                                                     std::size_t, cudaStream_t,
++                                                     const std::size_t*);
+ extern "C" int cumetalRuntimeIsDevicePointer(const void* ptr);
+ extern "C" cudaError_t cumetalFuncAttributesFromKernelProperties(
+     const cumetal::metal_backend::KernelProperties& kernel, cudaFuncAttributes* attr);
+@@ -2382,6 +2387,9 @@
+     if (ptx) {
+         const auto result = compile_runtime_ptx_entry(ptx, name, &function->runtime_msl_path);
+         if (result != CUDA_SUCCESS) return result;
++        if (!cumetalReadImmutableKernelSharedBytes(function->runtime_msl_path.c_str(), name,
++                                                   &function->static_shared_bytes))
++            return CUDA_ERROR_INVALID_IMAGE;
+     }
+     function->module = hmod;
+     function->kernel_name = name;
+@@ -2602,12 +2611,13 @@
+         .arg_info = arg_info.empty() ? nullptr : arg_info.data(),
+     };
+ 
+-    const cudaError_t status = cudaLaunchKernel(&kernel,
++    const cudaError_t status = cumetalLaunchKernelWithMetadata(&kernel,
+                                                 dim3(gridDimX, gridDimY, gridDimZ),
+                                                 dim3(blockDimX, blockDimY, blockDimZ),
+                                                 launch_params.empty() ? nullptr : launch_params.data(),
+                                                 sharedMemBytes,
+-                                                reinterpret_cast<cudaStream_t>(hStream));
++                                                reinterpret_cast<cudaStream_t>(hStream),
++                                                f->runtime_msl_path.empty() ? nullptr : &f->static_shared_bytes);
+     return map_cuda_error(status);
+ }
+ 
+--- a/runtime/rt/cuda_runtime.cpp
++++ b/runtime/rt/cuda_runtime.cpp
+@@ -6079,12 +6079,14 @@
+     return fail(cudaSuccess);
+ }
+ 
+-cudaError_t cudaLaunchKernel(const void* func,
+-                             dim3 grid_dim,
+-                             dim3 block_dim,
+-                             void** args,
+-                             size_t shared_mem,
+-                             cudaStream_t stream) {
++bool cumetalReadImmutableKernelSharedBytes(const char* path, const char* name,
++                                          std::size_t* shared_bytes) {
++    return load_inline_static_shared_bytes_uncached(path, name, shared_bytes);
++}
++
++cudaError_t cumetalLaunchKernelWithMetadata(const void* func, dim3 grid_dim, dim3 block_dim,
++                                           void** args, size_t shared_mem, cudaStream_t stream,
++                                           const size_t* immutable_static_shared_bytes) {
+     auto launch_fail = [&](cudaError_t err, const char* why) -> cudaError_t {
+         static int debug_launch = -1;
+         if (debug_launch < 0) {
+@@ -6135,9 +6137,9 @@
+     }
+ 
+     cumetal::registration::RegisteredKernel registered_kernel;
+-    const bool use_registered_kernel =
+-        cumetal::native_registration::lookup_kernel(func, &registered_kernel) ||
+-        cumetal::registration::lookup_registered_kernel(func, &registered_kernel);
++    const bool use_registered_kernel = immutable_static_shared_bytes == nullptr &&
++        (cumetal::native_registration::lookup_kernel(func, &registered_kernel) ||
++         cumetal::registration::lookup_registered_kernel(func, &registered_kernel));
+ 
+     if (trace_enabled()) {
+         char buf[256];
+@@ -6237,7 +6239,9 @@
+         }
+         arg_count = kernel->arg_count;
+         arg_info = kernel->arg_info;
+-        if (!load_inline_static_shared_bytes(kernel->metallib_path,
++        if (immutable_static_shared_bytes != nullptr) {
++            inline_static_shared_bytes = *immutable_static_shared_bytes;
++        } else if (!load_inline_static_shared_bytes(kernel->metallib_path,
+                                              kernel->kernel_name,
+                                              &inline_static_shared_bytes)) {
+             return launch_fail(cudaErrorInvalidValue, "inline kernel ABI sidecar invalid");
+@@ -7238,6 +7242,16 @@
+     }
+ 
+     return launch_fail(status, "metal_backend::launch_kernel");
++}
++
++cudaError_t cudaLaunchKernel(const void* func,
++                             dim3 grid_dim,
++                             dim3 block_dim,
++                             void** args,
++                             size_t shared_mem,
++                             cudaStream_t stream) {
++    return cumetalLaunchKernelWithMetadata(func, grid_dim, block_dim, args, shared_mem, stream,
++                                          nullptr);
+ }
+ 
+ cudaError_t cudaConfigureCall(dim3 grid_dim,

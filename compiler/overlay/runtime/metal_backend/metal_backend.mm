@@ -1,0 +1,4010 @@
+#include "cumetal/common/kernel_abi.h"
+#include "metal_backend.h"
+#include "cumetal/common/compile_trace.h"
+#include "cumetal/ptx/lower_to_llvm.h"
+#include "metal_math_mode.h"
+
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
+#import <MetalPerformanceShaders/MetalPerformanceShaders.h>
+#import <MetalPerformanceShadersGraph/MetalPerformanceShadersGraph.h>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#pragma clang diagnostic ignored "-Wsign-compare"
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
+#pragma clang diagnostic ignored "-Wunused-function"
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#include <vkFFT.h>
+#pragma clang diagnostic pop
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <condition_variable>
+#include <cstdlib>
+#include <cstring>
+
+#include "cumetal_diag.h"
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <limits>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <tuple>
+#include <unistd.h>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace cumetal::metal_backend {
+namespace {
+
+cudaError_t check_command_buffer_status(id<MTLCommandBuffer> command_buffer, std::string* error_message);
+cudaError_t map_command_buffer_error(NSError* command_error);
+cudaError_t check_launch_status(id<MTLCommandBuffer> command_buffer,
+                                const std::shared_ptr<Buffer>& trap_status,
+                                std::string* error_message) {
+    const auto status = check_command_buffer_status(command_buffer, error_message);
+    if (status != cudaSuccess) return status;
+    if (trap_status && *static_cast<const std::uint32_t*>(trap_status->contents()) != 0) {
+        if (error_message) *error_message = "PTX kernel executed trap";
+        return cudaErrorLaunchFailure;
+    }
+    return cudaSuccess;
+}
+
+constexpr std::size_t kDefaultHeapChunkBytes = 64ull * 1024ull * 1024ull;
+
+constexpr std::size_t kDefaultHeapAutoThresholdBytes = 4ull * 1024ull * 1024ull;
+
+enum class HeapMode { kAuto, kAlways, kDisabled };
+
+struct VkFftPlanKey {
+    std::array<int, 3> n{};
+    std::array<int, 3> real_embed{};
+    std::array<int, 3> complex_embed{};
+    std::size_t real_offset = 0;
+    std::size_t complex_offset = 0;
+    std::uintptr_t queue = 0;
+
+    bool operator<(const VkFftPlanKey& other) const {
+        return std::tie(n, real_embed, complex_embed, real_offset, complex_offset, queue) <
+               std::tie(other.n, other.real_embed, other.complex_embed,
+                        other.real_offset, other.complex_offset, other.queue);
+    }
+};
+
+struct VkFftPlan {
+    VkFFTConfiguration configuration{};
+    VkFFTApplication application{};
+    std::uint64_t real_bytes = 0;
+    std::uint64_t complex_bytes = 0;
+    bool initialized = false;
+
+    ~VkFftPlan() {
+        if (initialized) deleteVkFFT(&application);
+    }
+};
+
+std::mutex& vkfft_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::map<VkFftPlanKey, std::unique_ptr<VkFftPlan>>& vkfft_plans() {
+    static std::map<VkFftPlanKey, std::unique_ptr<VkFftPlan>> plans;
+    return plans;
+}
+
+VkFftPlan* get_or_create_vkfft_plan_locked(const Fft3dR2CConfig& config,
+                                            std::size_t real_offset,
+                                            std::size_t complex_offset,
+                                            std::size_t real_span,
+                                            std::size_t complex_span,
+                                            id<MTLDevice> device,
+                                            id<MTLCommandQueue> queue,
+                                            std::string* error_message) {
+    VkFftPlanKey key;
+    for (int axis = 0; axis < 3; ++axis) {
+        key.n[axis] = config.n[axis];
+        key.real_embed[axis] = config.real_embed[axis];
+        key.complex_embed[axis] = config.complex_embed[axis];
+    }
+    key.real_offset = real_offset;
+    key.complex_offset = complex_offset;
+
+    key.queue = 0;
+
+    auto plan_it = vkfft_plans().find(key);
+    if (plan_it != vkfft_plans().end()) return plan_it->second.get();
+
+    auto created = std::make_unique<VkFftPlan>();
+    created->real_bytes = real_offset + real_span;
+    created->complex_bytes = complex_offset + complex_span;
+    auto& vk = created->configuration;
+    vk.FFTdim = 3;
+    vk.size[0] = static_cast<std::uint64_t>(config.n[2]);
+    vk.size[1] = static_cast<std::uint64_t>(config.n[1]);
+    vk.size[2] = static_cast<std::uint64_t>(config.n[0]);
+    vk.performR2C = 1;
+    vk.device = reinterpret_cast<MTL::Device*>((__bridge void*)device);
+    vk.queue = reinterpret_cast<MTL::CommandQueue*>((__bridge void*)queue);
+    vk.bufferSize = &created->complex_bytes;
+    vk.inputBufferSize = &created->real_bytes;
+    vk.bufferStride[0] = static_cast<std::uint64_t>(config.complex_embed[2]);
+    vk.bufferStride[1] = vk.bufferStride[0] * config.complex_embed[1];
+    vk.bufferStride[2] = vk.bufferStride[1] * config.complex_embed[0];
+    vk.isInputFormatted = 1;
+    vk.inverseReturnToInputBuffer = 1;
+    vk.inputBufferStride[0] = static_cast<std::uint64_t>(config.real_embed[2]);
+    vk.inputBufferStride[1] = vk.inputBufferStride[0] * config.real_embed[1];
+    vk.inputBufferStride[2] = vk.inputBufferStride[1] * config.real_embed[0];
+    vk.bufferOffset = complex_offset;
+    vk.inputBufferOffset = real_offset;
+
+    const VkFFTResult initialized = initializeVkFFT(&created->application, vk);
+    if (initialized != VKFFT_SUCCESS) {
+        if (error_message != nullptr) {
+            *error_message = std::string("VkFFT plan initialization failed: ") +
+                             getVkFFTErrorString(initialized);
+        }
+        return nullptr;
+    }
+    created->initialized = true;
+    VkFftPlan* plan = created.get();
+    vkfft_plans().emplace(key, std::move(created));
+    return plan;
+}
+
+bool validate_fft_r2c_config(const Fft3dR2CConfig& config,
+                             std::size_t* real_span,
+                             std::size_t* complex_span,
+                             std::string* error_message) {
+    for (int axis = 0; axis < 3; ++axis) {
+        if (config.n[axis] <= 0 || config.real_embed[axis] < config.n[axis]) {
+            if (error_message != nullptr) *error_message = "VkFFT received invalid real layout";
+            return false;
+        }
+    }
+    const int complex_fast = config.n[2] / 2 + 1;
+    if (config.complex_embed[0] < config.n[0] ||
+        config.complex_embed[1] < config.n[1] ||
+        config.complex_embed[2] < complex_fast) {
+        if (error_message != nullptr) *error_message = "VkFFT received invalid complex layout";
+        return false;
+    }
+    auto required_elements = [](const int* logical, const int* embed) -> std::size_t {
+        return (static_cast<std::size_t>(logical[0] - 1) * embed[1] +
+                static_cast<std::size_t>(logical[1] - 1)) * embed[2] + logical[2];
+    };
+    const int complex_n[3] = {config.n[0], config.n[1], complex_fast};
+    *real_span = required_elements(config.n, config.real_embed) * sizeof(float);
+    *complex_span = required_elements(complex_n, config.complex_embed) * 2 * sizeof(float);
+    return true;
+}
+
+bool env_truthy(const char* value) {
+    if (value == nullptr) {
+        return false;
+    }
+    std::string lowered(value);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return lowered == "1" || lowered == "true" || lowered == "yes" || lowered == "on";
+}
+
+const char* legacy_source_for_provenance(const std::string& provenance) {
+    if (provenance == "generic_nvvm_lowering") return "generic_nvvm";
+    if (provenance == "generic_ptx_lowering") return "generic_ptx";
+    if (provenance == "library_substitution") return "specialized_msl";
+    if (provenance == "generic_ptx_lowering_fp64_emulated") return "generic_ptx";
+    if (provenance == "generic_ptx_lowering_fp64_wide48") return "generic_ptx";
+    if (provenance == "generic_ptx_lowering_fp64_ieee64") return "generic_ptx";
+    if (provenance == "workload_specialization") return "specialized_msl";
+    if (provenance == "precompiled_metallib") return "metallib";
+    if (provenance == "cpu_fallback") return "cpu_fallback";
+    if (provenance == "unsupported") return "stub";
+    return "unknown";
+}
+
+bool bind_byte_argument(id<MTLComputeCommandEncoder> encoder,
+                        id<MTLDevice> device,
+                        const std::vector<std::uint8_t>& bytes,
+                        std::size_t binding_index,
+                        const std::string& context,
+                        std::string* error_message) {
+    if (bytes.size() <= 4096) {
+        [encoder setBytes:bytes.data() length:bytes.size() atIndex:binding_index];
+        return true;
+    }
+    id<MTLBuffer> staged = [device newBufferWithBytes:bytes.data()
+                                               length:bytes.size()
+                                              options:MTLResourceStorageModeShared];
+    if (staged == nil) {
+        if (error_message != nullptr) {
+            *error_message = context + ": could not stage a " + std::to_string(bytes.size()) +
+                             "-byte parameter into a buffer";
+        }
+        return false;
+    }
+    [encoder setBuffer:staged offset:0 atIndex:binding_index];
+    return true;
+}
+
+const char* semantic_quality_for_provenance(const std::string& provenance) {
+    if (provenance == "cpu_fallback") return "cpu_fallback";
+    if (provenance == "unsupported") return "unsupported";
+
+    if (provenance == "generic_ptx_lowering_fp64_emulated") return "reduced_precision_fp64";
+    if (provenance == "generic_ptx_lowering_fp64_wide48") return "reduced_precision_fp64";
+    return "exact";
+}
+
+std::size_t parse_size_env(const char* value, std::size_t fallback) {
+    if (value == nullptr || value[0] == '\0') {
+        return fallback;
+    }
+    char* end = nullptr;
+    const unsigned long long parsed = std::strtoull(value, &end, 10);
+    if (end == value || *end != '\0' || parsed == 0) {
+        return fallback;
+    }
+    return static_cast<std::size_t>(parsed);
+}
+
+std::size_t align_up(std::size_t value, std::size_t alignment) {
+    if (alignment == 0) {
+        return value;
+    }
+    const std::size_t remainder = value % alignment;
+    if (remainder == 0) {
+        return value;
+    }
+    return value + (alignment - remainder);
+}
+
+void unregister_live_buffer(id<MTLBuffer> buffer);
+
+class BufferImpl final : public Buffer {
+public:
+    explicit BufferImpl(id<MTLBuffer> buffer, bool heap_backed = false)
+        : buffer_(buffer), heap_backed_(heap_backed) {}
+
+    ~BufferImpl() override {
+
+        if (!heap_backed_) {
+            unregister_live_buffer(buffer_);
+        }
+    }
+
+    void* contents() const override {
+        return [buffer_ contents];
+    }
+
+    std::uintptr_t device_address() const override {
+        return static_cast<std::uintptr_t>([buffer_ gpuAddress]);
+    }
+
+    std::size_t length() const override {
+        return static_cast<std::size_t>([buffer_ length]);
+    }
+
+    id<MTLBuffer> handle() const {
+        return buffer_;
+    }
+
+    bool heap_backed() const {
+        return heap_backed_;
+    }
+
+    std::pair<id<MTLSharedEvent>, std::uint64_t> last_access() const {
+        return {last_access_event_, last_access_value_};
+    }
+
+    void set_last_access(id<MTLSharedEvent> event, std::uint64_t value) {
+        last_access_event_ = event;
+        last_access_value_ = value;
+    }
+
+private:
+    id<MTLBuffer> buffer_;
+    bool heap_backed_ = false;
+    id<MTLSharedEvent> last_access_event_ = nil;
+    std::uint64_t last_access_value_ = 0;
+};
+
+struct ResourceFenceReservation {
+    id<MTLSharedEvent> event = nil;
+    std::uint64_t signal_value = 0;
+};
+
+class EventMarkerImpl final : public EventMarker {
+public:
+    explicit EventMarkerImpl(id<MTLCommandBuffer> command_buffer) : command_buffer_(command_buffer) {}
+
+    cudaError_t gpu_timestamp(double* seconds, std::string* error_message) const override {
+        const auto status = [command_buffer_ status];
+        if (status != MTLCommandBufferStatusCompleted && status != MTLCommandBufferStatusError) {
+            return cudaErrorNotReady;
+        }
+        const cudaError_t result = check_command_buffer_status(command_buffer_, error_message);
+        if (result != cudaSuccess) {
+            return result;
+        }
+        *seconds = [command_buffer_ GPUEndTime];
+        if (*seconds <= 0.0) {
+            if (error_message != nullptr) {
+                *error_message = "Metal event marker has no GPU timestamp";
+            }
+            return cudaErrorNotSupported;
+        }
+        return cudaSuccess;
+    }
+
+private:
+     
+    id<MTLCommandBuffer> command_buffer_;
+};
+
+class StreamImpl final : public Stream {
+public:
+    StreamImpl(id<MTLCommandQueue> queue,
+               id<MTLSharedEvent> access_event,
+               bool participates_in_legacy_sync,
+               bool legacy_default)
+        : queue_(queue),
+          access_event_(access_event),
+          participates_in_legacy_sync_(participates_in_legacy_sync),
+          legacy_default_(legacy_default) {}
+
+    id<MTLCommandQueue> queue() const {
+        return queue_;
+    }
+
+    id<MTLSharedEvent> access_event() const {
+        return access_event_;
+    }
+
+    std::uint64_t reserve_access_value() {
+        return next_access_value_++;
+    }
+
+    bool participates_in_legacy_sync() const {
+        return participates_in_legacy_sync_;
+    }
+
+    bool is_legacy_default() const {
+        return legacy_default_;
+    }
+
+    std::uint64_t latest_submission_value() const {
+        return latest_submission_value_;
+    }
+
+    bool latest_submission_requires_wait() const {
+        return latest_submission_requires_wait_;
+    }
+
+    void set_latest_submission_value(std::uint64_t value) {
+        latest_submission_value_ = value;
+        latest_submission_requires_wait_ = false;
+    }
+
+    void set_latest_host_barrier_value(std::uint64_t value) {
+        latest_submission_value_ = value;
+        latest_submission_requires_wait_ = true;
+    }
+
+    std::mutex& submission_mutex() {
+        return submission_mutex_;
+    }
+
+    void add_pending_host_operation() {
+        std::lock_guard<std::mutex> lock(host_operation_mutex_);
+        ++pending_host_operations_;
+    }
+
+    void complete_pending_host_operation() {
+        {
+            std::lock_guard<std::mutex> lock(host_operation_mutex_);
+            if (pending_host_operations_ > 0) --pending_host_operations_;
+        }
+        host_operation_cv_.notify_all();
+    }
+
+    void wait_host_operations() {
+        std::unique_lock<std::mutex> lock(host_operation_mutex_);
+        host_operation_cv_.wait(lock, [&] { return pending_host_operations_ == 0; });
+    }
+
+    enum class EncoderKind { kNone, kCompute, kBlit };
+
+    bool has_open_batch() const { return open_buffer_ != nil; }
+    bool batch_kind_is(EncoderKind kind) const { return open_kind_ == kind; }
+
+    id<MTLComputeCommandEncoder> batch_compute_encoder() {
+        if (open_kind_ != EncoderKind::kCompute) {
+            end_open_encoder();
+            open_encoder_ = [open_buffer_ computeCommandEncoder];
+            open_kind_ = open_encoder_ != nil ? EncoderKind::kCompute : EncoderKind::kNone;
+        }
+        return static_cast<id<MTLComputeCommandEncoder>>(open_encoder_);
+    }
+
+    id<MTLBlitCommandEncoder> batch_blit_encoder() {
+        if (open_kind_ != EncoderKind::kBlit) {
+            end_open_encoder();
+            open_encoder_ = [open_buffer_ blitCommandEncoder];
+            open_kind_ = open_encoder_ != nil ? EncoderKind::kBlit : EncoderKind::kNone;
+        }
+        return static_cast<id<MTLBlitCommandEncoder>>(open_encoder_);
+    }
+    std::uint64_t open_batch_value() const { return open_batch_value_; }
+    unsigned open_batch_dispatches() const { return open_batch_dispatches_; }
+    const std::vector<ResourceFenceReservation>& open_batch_waits() const {
+        return open_batch_waits_;
+    }
+
+    void begin_batch(id<MTLCommandBuffer> command_buffer,
+                     id<MTLCommandEncoder> encoder,
+                     EncoderKind kind,
+                     std::vector<ResourceFenceReservation> reservations,
+                     std::vector<ResourceFenceReservation> waits,
+                     std::uint64_t batch_value) {
+        open_buffer_ = command_buffer;
+        open_encoder_ = encoder;
+        open_kind_ = kind;
+        open_batch_reservations_ = std::move(reservations);
+        open_batch_waits_ = std::move(waits);
+        open_batch_value_ = batch_value;
+        open_batch_dispatches_ = 1;
+    }
+
+    void note_batch_dispatch() { ++open_batch_dispatches_; }
+
+    std::uint64_t flush_open_batch_locked() {
+        if (open_buffer_ == nil) {
+            return 0;
+        }
+        id<MTLCommandBuffer> command_buffer = open_buffer_;
+        end_open_encoder();
+        for (const ResourceFenceReservation& reservation : open_batch_reservations_) {
+            [command_buffer encodeSignalEvent:reservation.event
+                                        value:reservation.signal_value];
+        }
+        open_buffer_ = nil;
+        open_batch_reservations_.clear();
+        open_batch_waits_.clear();
+        open_batch_value_ = 0;
+        open_batch_dispatches_ = 0;
+        [command_buffer commit];
+        return add_pending(command_buffer);
+    }
+
+    void flush_open_batch() {
+        std::lock_guard<std::mutex> lock(submission_mutex_);
+        (void)flush_open_batch_locked();
+    }
+
+    std::uint64_t add_pending(id<MTLCommandBuffer> command_buffer, std::shared_ptr<Buffer> trap_status = {}) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const std::uint64_t ticket = next_ticket_++;
+        pending_buffers_.push_back(PendingBuffer{.ticket = ticket, .command_buffer = command_buffer, .trap_status = std::move(trap_status)});
+        return ticket;
+    }
+
+    std::uint64_t tail_ticket() {
+        flush_open_batch();
+        std::lock_guard<std::mutex> lock(mutex_);
+        return next_ticket_ - 1;
+    }
+
+    cudaError_t poll_completed(std::string* error_message) {
+        flush_open_batch();
+        for (;;) {
+
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (trap_error_ != cudaSuccess) return trap_error_;
+            if (pending_buffers_.empty()) return cudaSuccess;
+            const PendingBuffer& front = pending_buffers_.front();
+            const MTLCommandBufferStatus completion = [front.command_buffer status];
+            if (completion != MTLCommandBufferStatusCompleted && completion != MTLCommandBufferStatusError)
+                return cudaSuccess;
+            const cudaError_t status = check_launch_status(front.command_buffer, front.trap_status, error_message);
+            if (front.trap_status && status == cudaErrorLaunchFailure) trap_error_ = status;
+            completed_ticket_ = front.ticket;
+            pending_buffers_.erase(pending_buffers_.begin());
+            if (status != cudaSuccess) return status;
+        }
+    }
+
+    cudaError_t query_ticket(std::uint64_t ticket, bool* out_complete, std::string* error_message) {
+        flush_open_batch();
+        if (out_complete == nullptr) {
+            if (error_message != nullptr) {
+                *error_message = "query_ticket missing out_complete";
+            }
+            return cudaErrorInvalidValue;
+        }
+
+        if (ticket == 0) {
+            *out_complete = true;
+            return cudaSuccess;
+        }
+
+        const cudaError_t poll_status = poll_completed(error_message);
+        if (poll_status != cudaSuccess) {
+            return poll_status;
+        }
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (trap_error_ != cudaSuccess) return trap_error_;
+        if (ticket >= next_ticket_) {
+            if (error_message != nullptr) {
+                *error_message = "query_ticket received unknown ticket";
+            }
+            return cudaErrorInvalidValue;
+        }
+
+        *out_complete = (ticket <= completed_ticket_);
+        return cudaSuccess;
+    }
+
+    cudaError_t wait_ticket(std::uint64_t ticket, std::string* error_message) {
+        flush_open_batch();
+        if (ticket == 0) {
+            return cudaSuccess;
+        }
+
+        for (;;) {
+            const cudaError_t poll_status = poll_completed(error_message);
+            if (poll_status != cudaSuccess) {
+                return poll_status;
+            }
+
+            id<MTLCommandBuffer> next_wait = nil;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (trap_error_ != cudaSuccess) return trap_error_;
+                if (ticket >= next_ticket_) {
+                    if (error_message != nullptr) {
+                        *error_message = "wait_ticket received unknown ticket";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+                if (ticket <= completed_ticket_) {
+                    return cudaSuccess;
+                }
+                if (pending_buffers_.empty()) {
+                    if (error_message != nullptr) {
+                        *error_message = "wait_ticket has no pending command buffers";
+                    }
+                    return cudaErrorUnknown;
+                }
+                next_wait = pending_buffers_.front().command_buffer;
+            }
+
+            [next_wait waitUntilCompleted];
+        }
+    }
+
+private:
+    struct PendingBuffer {
+        std::uint64_t ticket = 0;
+        id<MTLCommandBuffer> command_buffer = nil;
+        std::shared_ptr<Buffer> trap_status;
+    };
+    cudaError_t trap_error_ = cudaSuccess;
+
+    id<MTLCommandQueue> queue_;
+    id<MTLSharedEvent> access_event_;
+    bool participates_in_legacy_sync_ = false;
+    bool legacy_default_ = false;
+    std::uint64_t next_access_value_ = 1;
+    std::uint64_t latest_submission_value_ = 0;
+    bool latest_submission_requires_wait_ = false;
+    std::mutex submission_mutex_;
+    mutable std::mutex mutex_;
+    std::uint64_t next_ticket_ = 1;
+    std::uint64_t completed_ticket_ = 0;
+    std::vector<PendingBuffer> pending_buffers_;
+    std::mutex host_operation_mutex_;
+    std::condition_variable host_operation_cv_;
+    std::size_t pending_host_operations_ = 0;
+    void end_open_encoder() {
+        if (open_encoder_ != nil) {
+            [open_encoder_ endEncoding];
+        }
+        open_encoder_ = nil;
+        open_kind_ = EncoderKind::kNone;
+    }
+
+    id<MTLCommandBuffer> open_buffer_ = nil;
+    id<MTLCommandEncoder> open_encoder_ = nil;
+    EncoderKind open_kind_ = EncoderKind::kNone;
+    std::vector<ResourceFenceReservation> open_batch_reservations_;
+    std::vector<ResourceFenceReservation> open_batch_waits_;
+    std::uint64_t open_batch_value_ = 0;
+    unsigned open_batch_dispatches_ = 0;
+};
+
+struct BackendState {
+    struct HeapArena {
+        id<MTLHeap> heap = nil;
+        std::size_t size = 0;
+    };
+
+    std::mutex mutex;
+
+    std::mutex batch_mutex;
+
+    std::mutex submission_fence_mutex;
+    bool initialized = false;
+    HeapMode heap_mode = HeapMode::kAuto;
+    std::size_t heap_auto_threshold = kDefaultHeapAutoThresholdBytes;
+    std::size_t heap_chunk_bytes = kDefaultHeapChunkBytes;
+    id<MTLDevice> device = nil;
+    id<MTLCommandQueue> queue = nil;
+    id<MTLSharedEvent> default_access_event = nil;
+    std::shared_ptr<StreamImpl> default_stream;
+    std::unordered_map<std::string, id<MTLLibrary>> library_cache;
+    std::unordered_map<std::string, std::string> library_lowering_source;
+    std::unordered_map<std::string, std::string> library_math_mode;
+    std::unordered_map<std::string, id<MTLComputePipelineState>> pipeline_cache;
+
+    std::mutex ready_mutex;
+    std::unordered_set<std::string> ready_pipelines;
+
+    std::unordered_map<std::string, id<MTLBinaryArchive>> binary_archives;
+    std::unordered_map<std::string, std::string> binary_archive_paths;
+    std::unordered_map<std::string, bool> pipeline_uses_lock_bank;
+    std::unordered_map<std::string, bool> pipeline_uses_trap_status;
+    std::unordered_map<std::string, bool> pipeline_uses_device_clock;
+    std::unordered_map<std::string, bool> pipeline_uses_grid_barrier;
+    std::unordered_map<std::string, bool> pipeline_uses_grid_y_offset;
+    std::shared_ptr<Buffer> atomic_lock_bank;
+    std::shared_ptr<Buffer> device_clock;
+    std::vector<HeapArena> buffer_heaps;
+
+    std::vector<id<MTLBuffer>> live_buffers;
+    std::vector<std::weak_ptr<StreamImpl>> streams;
+};
+
+BackendState& state();
+std::vector<std::shared_ptr<StreamImpl>> collect_live_streams_locked(BackendState& backend);
+
+std::vector<ResourceFenceReservation> encode_submission_waits(
+    id<MTLCommandBuffer> command_buffer,
+    const std::shared_ptr<StreamImpl>& stream_impl,
+    std::vector<BufferImpl*> buffers,
+    std::vector<ResourceFenceReservation>* out_waits = nullptr) {
+    buffers.erase(std::remove(buffers.begin(), buffers.end(), nullptr), buffers.end());
+    std::sort(buffers.begin(), buffers.end(), std::less<BufferImpl*>{});
+    buffers.erase(std::unique(buffers.begin(), buffers.end()), buffers.end());
+
+    std::vector<ResourceFenceReservation> reservations;
+    BackendState& backend = state();
+    std::scoped_lock lock(backend.mutex, backend.submission_fence_mutex);
+    const std::shared_ptr<StreamImpl> submission_stream =
+        stream_impl != nullptr ? stream_impl : backend.default_stream;
+    if (submission_stream == nullptr) {
+        return reservations;
+    }
+
+    id<MTLSharedEvent> signal_event = submission_stream->access_event();
+    const std::uint64_t signal_value = submission_stream->reserve_access_value();
+    std::vector<ResourceFenceReservation> waits;
+    auto add_wait = [&](id<MTLSharedEvent> event, std::uint64_t value) {
+
+        if (event == nil || value == 0 || event == signal_event) {
+            return;
+        }
+        const bool duplicate = std::any_of(
+            waits.begin(), waits.end(), [&](const ResourceFenceReservation& wait) {
+                return wait.event == event && wait.signal_value == value;
+            });
+        if (!duplicate) {
+            waits.push_back({.event = event, .signal_value = value});
+        }
+    };
+
+    if (submission_stream->latest_submission_requires_wait()) {
+        const std::uint64_t host_barrier_value =
+            submission_stream->latest_submission_value();
+        if (host_barrier_value != 0) {
+            [command_buffer encodeWaitForEvent:submission_stream->access_event()
+                                         value:host_barrier_value];
+        }
+    }
+
+    if (submission_stream->is_legacy_default()) {
+        const auto live_streams = collect_live_streams_locked(backend);
+        for (const auto& user_stream : live_streams) {
+            if (!user_stream->participates_in_legacy_sync()) {
+                continue;
+            }
+            add_wait(user_stream->access_event(),
+                     user_stream->latest_submission_value());
+        }
+    } else if (submission_stream->participates_in_legacy_sync() &&
+               backend.default_stream != nullptr) {
+        add_wait(backend.default_stream->access_event(),
+                 backend.default_stream->latest_submission_value());
+    }
+
+    for (BufferImpl* buffer : buffers) {
+        const auto [wait_event, wait_value] = buffer->last_access();
+        add_wait(wait_event, wait_value);
+        buffer->set_last_access(signal_event, signal_value);
+    }
+    submission_stream->set_latest_submission_value(signal_value);
+    for (const ResourceFenceReservation& wait : waits) {
+        [command_buffer encodeWaitForEvent:wait.event value:wait.signal_value];
+    }
+    if (out_waits != nullptr) {
+        *out_waits = waits;
+    }
+    reservations.push_back({.event = signal_event, .signal_value = signal_value});
+    return reservations;
+}
+
+void flush_other_open_batches(const std::shared_ptr<StreamImpl>& self) {
+    std::vector<std::shared_ptr<StreamImpl>> streams;
+    {
+        BackendState& backend = state();
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        streams = collect_live_streams_locked(backend);
+        if (backend.default_stream != nullptr) {
+            streams.push_back(backend.default_stream);
+        }
+    }
+    for (const std::shared_ptr<StreamImpl>& stream : streams) {
+        if (stream == nullptr || stream == self) {
+            continue;
+        }
+        stream->flush_open_batch();
+    }
+}
+
+bool try_extend_submission(const std::shared_ptr<StreamImpl>& stream_impl,
+                           std::vector<BufferImpl*> buffers,
+                           std::uint64_t batch_value,
+                           const std::vector<ResourceFenceReservation>& encoded_waits) {
+    buffers.erase(std::remove(buffers.begin(), buffers.end(), nullptr), buffers.end());
+    std::sort(buffers.begin(), buffers.end(), std::less<BufferImpl*>{});
+    buffers.erase(std::unique(buffers.begin(), buffers.end()), buffers.end());
+
+    BackendState& backend = state();
+    std::scoped_lock lock(backend.mutex, backend.submission_fence_mutex);
+    if (stream_impl == nullptr) {
+        return false;
+    }
+    id<MTLSharedEvent> signal_event = stream_impl->access_event();
+
+    const auto covered = [&](id<MTLSharedEvent> event, std::uint64_t value) {
+        if (event == nil || value == 0) {
+            return true;
+        }
+
+        if (event == signal_event && value <= batch_value) {
+            return true;
+        }
+        for (const ResourceFenceReservation& wait : encoded_waits) {
+            if (wait.event == event && wait.signal_value >= value) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (stream_impl->is_legacy_default()) {
+        const auto live_streams = collect_live_streams_locked(backend);
+        for (const auto& user_stream : live_streams) {
+            if (!user_stream->participates_in_legacy_sync()) {
+                continue;
+            }
+            if (!covered(user_stream->access_event(),
+                         user_stream->latest_submission_value())) {
+                return false;
+            }
+        }
+    } else if (stream_impl->participates_in_legacy_sync() &&
+               backend.default_stream != nullptr) {
+        if (!covered(backend.default_stream->access_event(),
+                     backend.default_stream->latest_submission_value())) {
+            return false;
+        }
+    }
+
+    for (BufferImpl* buffer : buffers) {
+        const auto [wait_event, wait_value] = buffer->last_access();
+        if (!covered(wait_event, wait_value)) {
+            return false;
+        }
+    }
+    for (BufferImpl* buffer : buffers) {
+        buffer->set_last_access(signal_event, batch_value);
+    }
+    return true;
+}
+
+unsigned max_batch_dispatches() {
+    static const unsigned value = [] {
+        if (const char* v = std::getenv("CUMETAL_BATCH_DISPATCHES");
+            v != nullptr && v[0] != '\0') {
+            const long long parsed = std::atoll(v);
+            if (parsed >= 0 && parsed <= 4096) return static_cast<unsigned>(parsed);
+        }
+
+        return 256u;
+    }();
+    return value;
+}
+
+void encode_resource_signals(
+    id<MTLCommandBuffer> command_buffer,
+    const std::vector<ResourceFenceReservation>& reservations) {
+    for (const ResourceFenceReservation& reservation : reservations) {
+        [command_buffer encodeSignalEvent:reservation.event value:reservation.signal_value];
+    }
+}
+
+BackendState& state() {
+
+    static BackendState* kState = new BackendState;
+    return *kState;
+}
+
+bool ensure_initialized(std::string* error_message) {
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+    if (backend.initialized) {
+        return true;
+    }
+
+    @autoreleasepool {
+        backend.device = MTLCreateSystemDefaultDevice();
+        if (backend.device == nil) {
+            if (error_message != nullptr) {
+                *error_message = "failed to create default Metal device";
+            }
+            return false;
+        }
+
+        backend.queue = [backend.device newCommandQueue];
+        if (backend.queue == nil) {
+            if (error_message != nullptr) {
+                *error_message = "failed to create Metal command queue";
+            }
+            return false;
+        }
+        backend.default_access_event = [backend.device newSharedEvent];
+        if (backend.default_access_event == nil) {
+            if (error_message != nullptr) {
+                *error_message = "failed to create default resource fence event";
+            }
+            return false;
+        }
+        backend.default_stream = std::make_shared<StreamImpl>(
+            backend.queue, backend.default_access_event, true, true);
+
+        {
+            const char* heap_env = std::getenv("CUMETAL_MTLHEAP_ALLOC");
+            if (heap_env == nullptr || heap_env[0] == '\0') {
+                backend.heap_mode = HeapMode::kAuto;
+            } else if (env_truthy(heap_env)) {
+                backend.heap_mode = HeapMode::kAlways;
+            } else {
+                backend.heap_mode = HeapMode::kDisabled;
+            }
+        }
+        backend.heap_auto_threshold =
+            parse_size_env(std::getenv("CUMETAL_MTLHEAP_THRESHOLD_BYTES"),
+                           kDefaultHeapAutoThresholdBytes);
+        backend.heap_chunk_bytes =
+            parse_size_env(std::getenv("CUMETAL_MTLHEAP_CHUNK_BYTES"), kDefaultHeapChunkBytes);
+
+        backend.initialized = true;
+        return true;
+    }
+}
+
+std::string to_lower_copy(const std::string& input) {
+    std::string lowered = input;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return lowered;
+}
+
+int infer_multi_processor_count(const std::string& device_name) {
+    const std::string lowered = to_lower_copy(device_name);
+
+    if (lowered.find("m1 ultra") != std::string::npos) {
+        return 48;
+    }
+    if (lowered.find("m1 max") != std::string::npos) {
+        return 24;
+    }
+    if (lowered.find("m1 pro") != std::string::npos) {
+        return 14;
+    }
+    if (lowered.find("m1") != std::string::npos) {
+        return 8;
+    }
+
+    if (lowered.find("m2 ultra") != std::string::npos) {
+        return 60;
+    }
+    if (lowered.find("m2 max") != std::string::npos) {
+        return 30;
+    }
+    if (lowered.find("m2 pro") != std::string::npos) {
+        return 16;
+    }
+    if (lowered.find("m2") != std::string::npos) {
+        return 8;
+    }
+
+    if (lowered.find("m3 ultra") != std::string::npos) {
+        return 60;
+    }
+    if (lowered.find("m3 max") != std::string::npos) {
+        return 30;
+    }
+    if (lowered.find("m3 pro") != std::string::npos) {
+        return 11;
+    }
+    if (lowered.find("m3") != std::string::npos) {
+        return 8;
+    }
+
+    if (lowered.find("m4 ultra") != std::string::npos) {
+        return 60;
+    }
+    if (lowered.find("m4 max") != std::string::npos) {
+        return 32;
+    }
+    if (lowered.find("m4 pro") != std::string::npos) {
+        return 16;
+    }
+    if (lowered.find("m4") != std::string::npos) {
+        return 10;
+    }
+
+    return 8;
+}
+
+id<MTLLibrary> load_library_locked(BackendState& backend,
+                                   const std::string& metallib_path,
+                                   std::string* error_message) {
+    const auto found = backend.library_cache.find(metallib_path);
+    if (found != backend.library_cache.end()) {
+        return found->second;
+    }
+
+    @autoreleasepool {
+        NSString* path = [NSString stringWithUTF8String:metallib_path.c_str()];
+        NSError* read_error = nil;
+        NSData* data = [NSData dataWithContentsOfFile:path options:0 error:&read_error];
+        if (data == nil || [data length] == 0) {
+            if (error_message != nullptr) {
+                *error_message = "failed to read metallib file: " + metallib_path;
+                if (read_error != nil) {
+                    *error_message += " (" + std::string([[read_error localizedDescription] UTF8String]) + ")";
+                }
+            }
+            return nil;
+        }
+
+        bool is_cumetal_experimental = false;
+        {
+            const char* bytes = static_cast<const char*>([data bytes]);
+            const size_t len = [data length];
+            if (len > 32 &&
+                (memmem(bytes, len, "cumetal-experimental", 20) != nullptr ||
+                 memmem(bytes, len, "CuMetal experimental", 20) != nullptr ||
+                 memmem(bytes, len, "experimental container", 20) != nullptr)) {
+                is_cumetal_experimental = true;
+            }
+        }
+
+        NSString* pathStr = [NSString stringWithUTF8String:metallib_path.c_str()];
+        if ([pathStr hasSuffix:@".metal"]) {
+            NSError* srcErr = nil;
+            NSString* src = [NSString stringWithContentsOfFile:pathStr encoding:NSUTF8StringEncoding error:&srcErr];
+            if (src == nil || src.length == 0) {
+                if (error_message != nullptr) {
+                    *error_message = "failed to read MSL source file: " + metallib_path;
+                    if (srcErr != nil) {
+                        *error_message += " (" + std::string([[srcErr localizedDescription] UTF8String]) + ")";
+                    }
+                }
+                return nil;
+            }
+            MTLCompileOptions* compileOpts = [[MTLCompileOptions alloc] init];
+
+            cumetal::MetalMathMode math_mode = cumetal::current_metal_math_mode();
+            if ([src rangeOfString:@"cumetal-math-mode: safe"].location != NSNotFound) {
+                math_mode = cumetal::MetalMathMode::kSafe;
+            }
+            if (@available(macOS 15.0, *)) {
+                compileOpts.mathMode =
+                    math_mode == cumetal::MetalMathMode::kSafe
+                        ? MTLMathModeSafe
+                        : MTLMathModeFast;
+            } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                compileOpts.fastMathEnabled =
+                    math_mode == cumetal::MetalMathMode::kFast;
+#pragma clang diagnostic pop
+            }
+            NSError* libErr = nil;
+            id<MTLLibrary> srcLib = [&] {
+                 
+                const std::size_t input_bytes = common::CompileTrace::enabled()
+                    ? [src lengthOfBytesUsingEncoding:NSUTF8StringEncoding] : 0;
+                common::CompileTrace trace("metal_new_library_with_source", input_bytes);
+                return [backend.device newLibraryWithSource:src options:compileOpts error:&libErr];
+            }();
+            if (srcLib == nil) {
+                if (libErr != nil) {
+                    fprintf(stderr, "CUMETAL MSL COMPILE ERROR for %s: %s\n", metallib_path.c_str(), [[libErr localizedDescription] UTF8String]);
+                }
+                if (error_message != nullptr) {
+                    *error_message = "newLibraryWithSource (MSL) failed for: " + metallib_path;
+                    if (libErr != nil) {
+                        *error_message += " (" + std::string([[libErr localizedDescription] UTF8String]) + ")";
+                    }
+                }
+                return nil;
+            }
+            std::string lowering_source = "unknown";
+
+            if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering_fp64_emulated"]) {
+                lowering_source = "generic_ptx_lowering_fp64_emulated";
+            } else if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering_fp64_wide48"]) {
+                lowering_source = "generic_ptx_lowering_fp64_wide48";
+            } else if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering_fp64_ieee64"]) {
+                lowering_source = "generic_ptx_lowering_fp64_ieee64";
+            } else if ([src containsString:@"// cumetal-provenance: generic_nvvm_lowering"]) {
+                lowering_source = "generic_nvvm_lowering";
+            } else if ([src containsString:@"// cumetal-provenance: generic_ptx_lowering"]) {
+                lowering_source = "generic_ptx_lowering";
+            } else if ([src containsString:@"// cumetal-provenance: library_substitution"]) {
+                lowering_source = "library_substitution";
+            } else if ([src containsString:@"// cumetal-provenance: workload_specialization"]) {
+                lowering_source = "workload_specialization";
+            } else if ([src containsString:@"// cumetal-lowering: generic_ptx"]) {
+                lowering_source = "generic_ptx_lowering";
+            } else if ([src containsString:@"// cumetal-lowering: specialized_msl"]) {
+                lowering_source = "workload_specialization";
+            } else if ([src containsString:@"// cumetal-lowering: approximate_stub"]) {
+                lowering_source = "unsupported";
+            }
+            backend.library_lowering_source[metallib_path] = lowering_source;
+            backend.library_math_mode[metallib_path] =
+                cumetal::metal_math_mode_name(math_mode);
+            backend.library_cache.emplace(metallib_path, srcLib);
+            return srcLib;
+        }
+
+        dispatch_data_t dispatch_data = dispatch_data_create(
+            [data bytes], [data length], dispatch_get_main_queue(), DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+
+        NSError* library_error = nil;
+        id<MTLLibrary> library = [backend.device newLibraryWithData:dispatch_data error:&library_error];
+        if (library == nil) {
+            if (error_message != nullptr) {
+                *error_message = "newLibraryWithData failed for metallib: " + metallib_path;
+                if (library_error != nil) {
+                    *error_message +=
+                        " (" + std::string([[library_error localizedDescription] UTF8String]) + ")";
+                }
+                if (is_cumetal_experimental) {
+                    *error_message +=
+                        " [CuMetal experimental test container - NOT a loadable production .metallib. "
+                        "This occurs when the 'metal'/'metallib' tools were unavailable (CLT-only env, no full Xcode) "
+                        "at the time this kernel was lowered or JIT-compiled. The kernel cannot execute on Metal/GPU. "
+                        "Re-run with --n-gpu-layers 0 to force CPU, or install the metal toolchain for offload support.]";
+                     
+                    std::error_code ec;
+                    std::filesystem::remove(metallib_path, ec);
+                }
+            }
+            return nil;
+        }
+
+        backend.library_cache.emplace(metallib_path, library);
+        backend.library_lowering_source[metallib_path] = "precompiled_metallib";
+        backend.library_math_mode[metallib_path] = "precompiled";
+        return library;
+    }
+}
+
+bool binary_archive_enabled() {
+    const char* value = std::getenv("CUMETAL_BINARY_ARCHIVE");
+    return value == nullptr || (std::strcmp(value, "0") != 0 &&
+                                std::strcmp(value, "false") != 0 &&
+                                std::strcmp(value, "FALSE") != 0);
+}
+
+std::string fnv1a_file_hex(const std::string& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return {};
+    std::uint64_t hash = 1469598103934665603ull;
+    std::array<char, 16384> chunk{};
+    while (input) {
+        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        const std::streamsize count = input.gcount();
+        for (std::streamsize i = 0; i < count; ++i) {
+            hash ^= static_cast<unsigned char>(chunk[static_cast<std::size_t>(i)]);
+            hash *= 1099511628211ull;
+        }
+    }
+    char buffer[17];
+    std::snprintf(buffer, sizeof(buffer), "%016llx",
+                  static_cast<unsigned long long>(hash));
+    return buffer;
+}
+
+std::string sanitize_archive_component(std::string value) {
+    for (char& c : value) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-') {
+            c = '_';
+        }
+    }
+    return value;
+}
+
+id<MTLBinaryArchive> load_binary_archive_locked(BackendState& backend,
+                                                const std::string& metallib_path) {
+    if (!binary_archive_enabled() || backend.device == nil) return nil;
+    const auto cached = backend.binary_archives.find(metallib_path);
+    if (cached != backend.binary_archives.end()) return cached->second;
+
+    const std::string hash = fnv1a_file_hex(metallib_path);
+    if (hash.empty()) return nil;
+
+    std::string directory;
+    if (const char* env_dir = std::getenv("CUMETAL_BINARY_ARCHIVE_DIR");
+        env_dir != nullptr && env_dir[0] != '\0') {
+        directory = env_dir;
+    } else if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        directory = std::string(home) + "/Library/Caches/cumetal/binary-archives";
+    } else {
+        return nil;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    if (ec) return nil;
+
+    const std::string gpu = sanitize_archive_component(
+        backend.device.name != nil ? std::string([backend.device.name UTF8String])
+                                   : "unknown-gpu");
+    const std::string os = sanitize_archive_component(std::string(
+        [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String]));
+    const std::string archive_path =
+        directory + "/" + hash + "-" + gpu + "-" + os + ".archive";
+
+    NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:archive_path.c_str()]];
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        MTLBinaryArchiveDescriptor* descriptor = [MTLBinaryArchiveDescriptor new];
+
+        descriptor.url = std::filesystem::exists(archive_path) ? url : nil;
+        NSError* archive_error = nil;
+        id<MTLBinaryArchive> archive =
+            [backend.device newBinaryArchiveWithDescriptor:descriptor error:&archive_error];
+        if (archive != nil) {
+            backend.binary_archives.emplace(metallib_path, archive);
+            backend.binary_archive_paths.emplace(metallib_path, archive_path);
+            return archive;
+        }
+
+        std::filesystem::remove(archive_path, ec);
+    }
+    return nil;
+}
+
+id<MTLComputePipelineState> load_pipeline_locked(BackendState& backend,
+                                                 const std::string& metallib_path,
+                                                 const std::string& kernel_name,
+                                                 std::string* error_message) {
+    const std::string cache_key = metallib_path + "::" + kernel_name;
+    const auto found = backend.pipeline_cache.find(cache_key);
+    if (found != backend.pipeline_cache.end()) {
+        return found->second;
+    }
+
+    id<MTLLibrary> library = load_library_locked(backend, metallib_path, error_message);
+    if (library == nil) {
+        return nil;
+    }
+
+    @autoreleasepool {
+        NSString* function_name = [NSString stringWithUTF8String:kernel_name.c_str()];
+        id<MTLFunction> function = [&] {
+            common::CompileTrace trace("metal_new_function");
+            return [library newFunctionWithName:function_name];
+        }();
+        if (function == nil) {
+            if (error_message != nullptr) {
+                *error_message = "failed to find kernel function: " + kernel_name;
+                *error_message +=
+                    " (possible cause: kernel was not emitted into this metallib because the CuMetal "
+                    "lowering/emitter did not support constructs in the original .cu/PTX, or only an "
+                    "experimental container was produced due to missing metal toolchain)";
+            }
+            return nil;
+        }
+
+        NSError* pipeline_error = nil;
+        MTLComputePipelineReflection* reflection = nil;
+        id<MTLBinaryArchive> binary_archive =
+            load_binary_archive_locked(backend, metallib_path);
+        MTLComputePipelineDescriptor* pipeline_descriptor = nil;
+        id<MTLComputePipelineState> pipeline = nil;
+        if (binary_archive != nil) {
+            pipeline_descriptor = [MTLComputePipelineDescriptor new];
+            pipeline_descriptor.computeFunction = function;
+            pipeline_descriptor.binaryArchives = @[ binary_archive ];
+            pipeline = [&] {
+                common::CompileTrace trace("metal_new_compute_pipeline");
+                return [backend.device
+                    newComputePipelineStateWithDescriptor:pipeline_descriptor
+                                                  options:MTLPipelineOptionBindingInfo
+                                               reflection:&reflection
+                                                    error:&pipeline_error];
+            }();
+            if (pipeline == nil) {
+                pipeline_descriptor = nil;
+                pipeline_error = nil;
+            }
+        }
+        if (pipeline == nil) {
+            pipeline = [&] {
+                common::CompileTrace trace("metal_new_compute_pipeline");
+                return [backend.device newComputePipelineStateWithFunction:function
+                                                                  options:MTLPipelineOptionBindingInfo
+                                                               reflection:&reflection
+                                                                    error:&pipeline_error];
+            }();
+        } else {
+
+            NSError* add_error = nil;
+            if ([binary_archive addComputePipelineFunctionsWithDescriptor:pipeline_descriptor
+                                                                    error:&add_error]) {
+                const auto path_found = backend.binary_archive_paths.find(metallib_path);
+                if (path_found != backend.binary_archive_paths.end()) {
+                    NSURL* archive_url = [NSURL
+                        fileURLWithPath:[NSString
+                                            stringWithUTF8String:path_found->second.c_str()]];
+                    NSError* serialize_error = nil;
+                    [binary_archive serializeToURL:archive_url error:&serialize_error];
+                }
+            }
+        }
+        if (pipeline == nil) {
+            if (error_message != nullptr) {
+                *error_message = "failed to create compute pipeline for function: " + kernel_name;
+                if (pipeline_error != nil) {
+                    *error_message +=
+                        " (" + std::string([[pipeline_error localizedDescription] UTF8String]) + ")";
+                }
+            }
+            return nil;
+        }
+
+        if ([pipeline threadExecutionWidth] != 32) {
+            if (error_message != nullptr) {
+                *error_message = "unsupported Metal threadExecutionWidth (expected 32)";
+            }
+            return nil;
+        }
+
+        bool uses_lock_bank = false;
+        bool uses_trap_status = false;
+        bool uses_device_clock = false;
+        bool uses_grid_barrier = false;
+        bool uses_grid_y_offset = false;
+        for (id<MTLBinding> binding in [reflection bindings]) {
+            if ([binding type] != MTLBindingTypeBuffer) {
+                continue;
+            }
+
+            if ([binding index] == cumetal::abi::kTrapStatusBindingIndex &&
+                [[binding name] isEqualToString:[NSString stringWithUTF8String:cumetal::abi::kTrapStatusName]]) uses_trap_status = true;
+            if ([binding index] == cumetal::ptx::kAtomicLockBankBindingIndex) {
+                uses_lock_bank = true;
+            }
+            if ([binding index] == cumetal::ptx::kDeviceClockBindingIndex) {
+                uses_device_clock = true;
+            }
+            if ([binding index] == cumetal::ptx::kGridBarrierBindingIndex) {
+                uses_grid_barrier = true;
+            }
+            if ([binding index] == cumetal::ptx::kGridYOffsetBindingIndex) {
+                uses_grid_y_offset = true;
+            }
+        }
+        backend.pipeline_uses_trap_status[cache_key] = uses_trap_status;
+        backend.pipeline_uses_lock_bank[cache_key] = uses_lock_bank;
+        backend.pipeline_uses_device_clock[cache_key] = uses_device_clock;
+        backend.pipeline_uses_grid_barrier[cache_key] = uses_grid_barrier;
+        backend.pipeline_uses_grid_y_offset[cache_key] = uses_grid_y_offset;
+        backend.pipeline_cache.emplace(cache_key, pipeline);
+        {
+            std::lock_guard<std::mutex> ready_lock(backend.ready_mutex);
+            backend.ready_pipelines.insert(cache_key);
+        }
+        return pipeline;
+    }
+}
+
+std::shared_ptr<Buffer> ensure_atomic_lock_bank(std::string* error_message) {
+    static std::mutex bank_mutex;
+    std::lock_guard<std::mutex> guard(bank_mutex);
+    BackendState& backend = state();
+    if (backend.atomic_lock_bank != nullptr) {
+        return backend.atomic_lock_bank;
+    }
+    const std::size_t bytes = cumetal::ptx::kAtomicLockBankSlots * sizeof(std::uint32_t);
+    std::string alloc_error;
+    std::shared_ptr<Buffer> bank;
+    if (allocate_buffer(bytes, &bank, &alloc_error) != cudaSuccess || bank == nullptr ||
+        bank->contents() == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "64-bit atomic lock bank allocation failed: " + alloc_error;
+        }
+        return nullptr;
+    }
+    std::memset(bank->contents(), 0, bytes);
+    backend.atomic_lock_bank = bank;
+    return bank;
+}
+
+std::shared_ptr<Buffer> ensure_device_clock(std::string* error_message) {
+    static std::mutex clock_mutex;
+    std::lock_guard<std::mutex> guard(clock_mutex);
+    BackendState& backend = state();
+    if (backend.device_clock != nullptr) {
+        return backend.device_clock;
+    }
+    std::string alloc_error;
+    std::shared_ptr<Buffer> counter;
+    if (allocate_buffer(sizeof(std::uint32_t), &counter, &alloc_error) != cudaSuccess ||
+        counter == nullptr || counter->contents() == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "device clock counter allocation failed: " + alloc_error;
+        }
+        return nullptr;
+    }
+    std::memset(counter->contents(), 0, sizeof(std::uint32_t));
+    backend.device_clock = counter;
+    return counter;
+}
+
+std::shared_ptr<Buffer> allocate_grid_barrier(std::string* error_message) {
+    std::string alloc_error;
+    std::shared_ptr<Buffer> barrier;
+    if (allocate_buffer(2u * sizeof(std::uint32_t), &barrier, &alloc_error) != cudaSuccess ||
+        barrier == nullptr || barrier->contents() == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "cooperative grid barrier allocation failed: " + alloc_error;
+        }
+        return nullptr;
+    }
+    std::memset(barrier->contents(), 0, 2u * sizeof(std::uint32_t));
+    return barrier;
+}
+
+cudaError_t check_command_buffer_status(id<MTLCommandBuffer> command_buffer, std::string* error_message) {
+    if ([command_buffer status] != MTLCommandBufferStatusError) {
+        return cudaSuccess;
+    }
+
+    NSError* command_error = [command_buffer error];
+    const cudaError_t mapped_error = map_command_buffer_error(command_error);
+    std::string msg = "command buffer failed";
+    if (command_error != nil) {
+        msg += " (" + std::string([[command_error localizedDescription] UTF8String]) + ")";
+    }
+    if (error_message != nullptr) {
+        *error_message = msg;
+    }
+     
+    std::fprintf(stderr, "cumetal: MTL command buffer error: %s\n", msg.c_str());
+    return mapped_error;
+}
+
+cudaError_t map_command_buffer_error(NSError* command_error) {
+    if (command_error == nil) {
+        return cudaErrorUnknown;
+    }
+
+    if (![[command_error domain] isEqualToString:MTLCommandBufferErrorDomain]) {
+        return cudaErrorUnknown;
+    }
+
+    const MTLCommandBufferError code = static_cast<MTLCommandBufferError>([command_error code]);
+    switch (code) {
+        case MTLCommandBufferErrorTimeout:
+            return cudaErrorLaunchTimeout;
+        case MTLCommandBufferErrorPageFault:
+            return cudaErrorIllegalAddress;
+        case MTLCommandBufferErrorAccessRevoked:
+            return cudaErrorDevicesUnavailable;
+        case MTLCommandBufferErrorInternal:
+            return cudaErrorUnknown;
+        default:
+            return cudaErrorUnknown;
+    }
+}
+
+std::vector<std::shared_ptr<StreamImpl>> collect_live_streams_locked(BackendState& backend) {
+    std::vector<std::shared_ptr<StreamImpl>> live;
+    std::vector<std::weak_ptr<StreamImpl>> retained;
+    retained.reserve(backend.streams.size());
+    live.reserve(backend.streams.size());
+
+    for (const std::weak_ptr<StreamImpl>& weak_stream : backend.streams) {
+        if (auto stream = weak_stream.lock()) {
+            live.push_back(stream);
+            retained.push_back(stream);
+        }
+    }
+
+    backend.streams.swap(retained);
+    return live;
+}
+
+bool heap_hazard_tracking_enabled() {
+    static const bool enabled = [] {
+        const char* v = std::getenv("CUMETAL_MTLHEAP_TRACKED");
+        return v == nullptr || v[0] == '\0' || env_truthy(v);
+    }();
+    return enabled;
+}
+
+bool mixed_encoder_batching_enabled() {
+    static const bool enabled = [] {
+        if (!heap_hazard_tracking_enabled()) return false;
+        const char* v = std::getenv("CUMETAL_BATCH_MIXED_ENCODERS");
+        return v == nullptr || v[0] == '\0' || env_truthy(v);
+    }();
+    return enabled;
+}
+
+bool metal_device_addresses_enabled() {
+    static const bool enabled = [] {
+
+        const char* v = std::getenv("CUMETAL_USE_METAL_DEVICE_ADDRESSES");
+        return v != nullptr && v[0] != '\0' && std::strcmp(v, "0") != 0 &&
+               std::strcmp(v, "false") != 0 && std::strcmp(v, "FALSE") != 0;
+    }();
+    return enabled;
+}
+
+void unregister_live_buffer(id<MTLBuffer> buffer) {
+    if (buffer == nil) {
+        return;
+    }
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+    auto& live = backend.live_buffers;
+    for (auto it = live.begin(); it != live.end(); ++it) {
+        if (*it == buffer) {
+            live.erase(it);
+            return;
+        }
+    }
+}
+
+void mark_allocations_resident(id<MTLComputeCommandEncoder> encoder, BackendState& backend) {
+    if (!metal_device_addresses_enabled()) {
+        return;
+    }
+    cumetal::warn_once(
+        "metal_device_address_residency",
+        "CUMETAL_USE_METAL_DEVICE_ADDRESSES marks every live allocation "
+        "read-write on every dispatch so kernels can follow raw device "
+        "addresses; this removes cross-stream concurrency.");
+    std::vector<id<MTLHeap>> heaps;
+    std::vector<id<MTLBuffer>> buffers;
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        heaps.reserve(backend.buffer_heaps.size());
+        for (const BackendState::HeapArena& arena : backend.buffer_heaps) {
+            if (arena.heap != nil) {
+                heaps.push_back(arena.heap);
+            }
+        }
+        buffers = backend.live_buffers;
+    }
+    for (id<MTLHeap> heap : heaps) {
+        [encoder useHeap:heap];
+    }
+    if (!buffers.empty()) {
+        [encoder useResources:buffers.data()
+                        count:buffers.size()
+                        usage:(MTLResourceUsageRead | MTLResourceUsageWrite)];
+    }
+}
+
+id<MTLBuffer> allocate_buffer_from_heap_locked(BackendState& backend,
+                                               std::size_t size,
+                                               std::string* error_message) {
+    constexpr MTLResourceOptions kBufferOptions = MTLResourceStorageModeShared;
+    for (BackendState::HeapArena& arena : backend.buffer_heaps) {
+        id<MTLBuffer> buffer = [arena.heap newBufferWithLength:size options:kBufferOptions];
+        if (buffer != nil) {
+            return buffer;
+        }
+    }
+
+    const MTLSizeAndAlign size_and_align =
+        [backend.device heapBufferSizeAndAlignWithLength:size options:kBufferOptions];
+    const std::size_t aligned_size = align_up(
+        static_cast<std::size_t>(size_and_align.size), static_cast<std::size_t>(size_and_align.align));
+    const std::size_t arena_size = std::max(backend.heap_chunk_bytes, aligned_size);
+    if (arena_size == 0) {
+        if (error_message != nullptr) {
+            *error_message = "heapBufferSizeAndAlignWithLength returned invalid size";
+        }
+        return nil;
+    }
+
+    MTLHeapDescriptor* descriptor = [[MTLHeapDescriptor alloc] init];
+    if (heap_hazard_tracking_enabled()) {
+        [descriptor setHazardTrackingMode:MTLHazardTrackingModeTracked];
+    }
+    [descriptor setStorageMode:MTLStorageModeShared];
+    [descriptor setSize:arena_size];
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
+    [descriptor setType:MTLHeapTypeAutomatic];
+#endif
+
+    id<MTLHeap> heap = [backend.device newHeapWithDescriptor:descriptor];
+    if (heap == nil) {
+        if (error_message != nullptr) {
+            *error_message = "newHeapWithDescriptor failed";
+        }
+        return nil;
+    }
+
+    backend.buffer_heaps.push_back(BackendState::HeapArena{.heap = heap, .size = arena_size});
+    id<MTLBuffer> buffer = [heap newBufferWithLength:size options:kBufferOptions];
+    if (buffer == nil && error_message != nullptr) {
+        *error_message = "newBufferWithLength from heap failed";
+    }
+    return buffer;
+}
+
+bool checked_matrix_span_bytes(std::size_t offset_bytes,
+                               std::size_t span_bytes,
+                               std::size_t buffer_length,
+                               const char* label,
+                               std::string* error_message) {
+    if (offset_bytes > buffer_length || span_bytes > (buffer_length - offset_bytes)) {
+        if (error_message != nullptr) {
+            *error_message = std::string("matrix span exceeds buffer bounds for ") + label;
+        }
+        return false;
+    }
+    return true;
+}
+
+cudaError_t resolve_queue_for_stream(const std::shared_ptr<Stream>& stream,
+                                     std::shared_ptr<StreamImpl>* out_stream_impl,
+                                     id<MTLCommandQueue>* out_queue,
+                                     std::string* error_message) {
+    if (out_queue == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "missing output queue";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    if (stream != nullptr) {
+        stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+        if (stream_impl == nullptr) {
+            if (error_message != nullptr) {
+                *error_message = "received unknown stream type";
+            }
+            return cudaErrorInvalidValue;
+        }
+    }
+
+    BackendState& backend = state();
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        if (stream_impl == nullptr) {
+            stream_impl = backend.default_stream;
+        }
+        *out_queue = stream_impl != nullptr ? stream_impl->queue() : backend.queue;
+    }
+
+    if (out_stream_impl != nullptr) {
+        *out_stream_impl = std::move(stream_impl);
+    }
+    return cudaSuccess;
+}
+
+}   
+
+cudaError_t initialize(std::string* error_message) {
+    return ensure_initialized(error_message) ? cudaSuccess : cudaErrorInitializationError;
+}
+
+cudaError_t query_device_properties(DeviceProperties* out_properties, std::string* error_message) {
+    if (out_properties == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "query_device_properties missing output";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    DeviceProperties props;
+    BackendState& backend = state();
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+
+        NSString* ns_name = [backend.device name];
+        if (ns_name != nil) {
+            props.name = [ns_name UTF8String];
+        }
+        if (props.name.empty()) {
+            props.name = "Apple GPU";
+        }
+
+        props.total_global_mem = static_cast<std::size_t>([backend.device recommendedMaxWorkingSetSize]);
+        if (props.total_global_mem == 0) {
+            props.total_global_mem =
+                static_cast<std::size_t>([[NSProcessInfo processInfo] physicalMemory]);
+        }
+
+        props.shared_mem_per_block =
+            static_cast<int>([backend.device maxThreadgroupMemoryLength]);
+
+        const MTLSize max_threads_per_group = [backend.device maxThreadsPerThreadgroup];
+        const std::uint64_t max_threads_product =
+            static_cast<std::uint64_t>(max_threads_per_group.width) *
+            static_cast<std::uint64_t>(max_threads_per_group.height) *
+            static_cast<std::uint64_t>(max_threads_per_group.depth);
+
+        const std::uint64_t cuda_max_threads_per_block = 1024;
+        props.max_threads_per_block = static_cast<int>(
+            std::min(max_threads_product, cuda_max_threads_per_block));
+
+        props.multi_processor_count = infer_multi_processor_count(props.name);
+    }
+
+    *out_properties = std::move(props);
+    return cudaSuccess;
+}
+
+cudaError_t prepare_kernel_pipeline(const std::string& metallib_path,
+                                    const std::string& kernel_name,
+                                    std::string* error_message) {
+    if (metallib_path.empty() || kernel_name.empty()) {
+        if (error_message != nullptr) {
+            *error_message = "prepare_kernel_pipeline invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (kernel_pipeline_is_ready(metallib_path, kernel_name)) {
+        return cudaSuccess;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+
+    if (load_pipeline_locked(backend, metallib_path, kernel_name, error_message) == nil) {
+        return cudaErrorInvalidValue;
+    }
+    return cudaSuccess;
+}
+
+bool kernel_pipeline_is_ready(const std::string& metallib_path,
+                              const std::string& kernel_name) {
+    if (metallib_path.empty() || kernel_name.empty()) {
+        return false;
+    }
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.ready_mutex);
+    return backend.ready_pipelines.contains(metallib_path + "::" + kernel_name);
+}
+
+cudaError_t query_kernel_properties(const std::string& metallib_path,
+                                    const std::string& kernel_name,
+                                    KernelProperties* out_properties,
+                                    std::string* error_message) {
+    if (out_properties == nullptr || metallib_path.empty() || kernel_name.empty()) {
+        if (error_message != nullptr) {
+            *error_message = "query_kernel_properties invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+    id<MTLComputePipelineState> pipeline =
+        load_pipeline_locked(backend, metallib_path, kernel_name, error_message);
+    if (pipeline == nil) {
+        return cudaErrorInvalidValue;
+    }
+    out_properties->max_threads_per_threadgroup =
+        static_cast<int>(std::min<NSUInteger>(pipeline.maxTotalThreadsPerThreadgroup, 1024));
+    out_properties->thread_execution_width =
+        static_cast<int>(pipeline.threadExecutionWidth);
+    out_properties->static_threadgroup_memory_bytes =
+        static_cast<std::size_t>(pipeline.staticThreadgroupMemoryLength);
+    return cudaSuccess;
+}
+
+cudaError_t allocate_buffer(std::size_t size,
+                            std::shared_ptr<Buffer>* out_buffer,
+                            std::string* error_message) {
+    if (out_buffer == nullptr || size == 0) {
+        if (error_message != nullptr) {
+            *error_message = "allocate_buffer invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+
+    id<MTLBuffer> buffer = nil;
+    const bool use_heap = (backend.heap_mode == HeapMode::kAlways) ||
+                          (backend.heap_mode == HeapMode::kAuto &&
+                           size >= backend.heap_auto_threshold);
+    if (use_heap) {
+        buffer = allocate_buffer_from_heap_locked(backend, size, error_message);
+    }
+    if (buffer == nil) {
+        buffer = [backend.device newBufferWithLength:size options:MTLResourceStorageModeShared];
+    }
+    if (buffer == nil) {
+        if (error_message != nullptr) {
+            *error_message = "newBufferWithLength failed";
+        }
+        return cudaErrorMemoryAllocation;
+    }
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+
+    if (std::getenv("CUMETAL_DEBUG_ALLOC") != nullptr) {
+        std::fprintf(stderr,
+                     "CUMETAL_ALLOC size=%zu heap=%d gpuAddress=0x%llx end=0x%llx\n",
+                     size, use_heap ? 1 : 0,
+                     static_cast<unsigned long long>([buffer gpuAddress]),
+                     static_cast<unsigned long long>([buffer gpuAddress]) + size);
+    }
+
+    if (!use_heap) {
+        backend.live_buffers.push_back(buffer);
+    }
+
+    *out_buffer = std::make_shared<BufferImpl>(buffer, use_heap);
+    return cudaSuccess;
+}
+
+cudaError_t wrap_host_buffer(void* ptr,
+                             std::size_t size,
+                             std::shared_ptr<Buffer>* out_buffer,
+                             std::string* error_message) {
+    if (ptr == nullptr || size == 0 || out_buffer == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "wrap_host_buffer invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+    const long page = ::sysconf(_SC_PAGESIZE);
+    if (page <= 0 ||
+        reinterpret_cast<std::uintptr_t>(ptr) % static_cast<std::uintptr_t>(page) != 0) {
+        if (error_message != nullptr) {
+            *error_message = "wrap_host_buffer requires page-aligned host memory";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+    const std::size_t rounded =
+        ((size + static_cast<std::size_t>(page) - 1) / static_cast<std::size_t>(page)) *
+        static_cast<std::size_t>(page);
+
+    id<MTLBuffer> buffer = [backend.device newBufferWithBytesNoCopy:ptr
+                                                             length:rounded
+                                                            options:MTLResourceStorageModeShared
+                                                        deallocator:nil];
+    if (buffer == nil) {
+        if (error_message != nullptr) {
+            *error_message = "newBufferWithBytesNoCopy failed";
+        }
+        return cudaErrorMemoryAllocation;
+    }
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+    backend.live_buffers.push_back(buffer);
+    *out_buffer = std::make_shared<BufferImpl>(buffer, false);
+    return cudaSuccess;
+}
+
+cudaError_t create_stream(std::shared_ptr<Stream>* out_stream,
+                          std::string* error_message,
+                          bool participates_in_legacy_sync) {
+    if (out_stream == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "create_stream invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+
+    id<MTLCommandQueue> queue = [backend.device newCommandQueue];
+    if (queue == nil) {
+        if (error_message != nullptr) {
+            *error_message = "failed to create stream command queue";
+        }
+        return cudaErrorUnknown;
+    }
+    id<MTLSharedEvent> access_event = [backend.device newSharedEvent];
+    if (access_event == nil) {
+        if (error_message != nullptr) {
+            *error_message = "failed to create stream resource fence event";
+        }
+        return cudaErrorUnknown;
+    }
+
+    std::shared_ptr<StreamImpl> stream =
+        std::make_shared<StreamImpl>(
+            queue, access_event, participates_in_legacy_sync, false);
+    backend.streams.push_back(stream);
+    *out_stream = stream;
+    return cudaSuccess;
+}
+
+std::shared_ptr<Stream> legacy_default_stream() {
+    if (!ensure_initialized(nullptr)) {
+        return nullptr;
+    }
+    BackendState& backend = state();
+    std::lock_guard<std::mutex> lock(backend.mutex);
+    return backend.default_stream;
+}
+
+cudaError_t destroy_stream(const std::shared_ptr<Stream>& stream, std::string* error_message) {
+    if (stream == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "destroy_stream invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    return stream_synchronize(stream, error_message);
+}
+
+cudaError_t stream_synchronize(const std::shared_ptr<Stream>& stream, std::string* error_message) {
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_synchronize received unknown stream type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    stream_impl->wait_host_operations();
+    return stream_impl->wait_ticket(stream_impl->tail_ticket(), error_message);
+}
+
+cudaError_t stream_tail_ticket(const std::shared_ptr<Stream>& stream,
+                               std::uint64_t* out_ticket,
+                               std::string* error_message) {
+    if (out_ticket == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_tail_ticket missing output";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_tail_ticket received unknown stream type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    *out_ticket = stream_impl->tail_ticket();
+    return cudaSuccess;
+}
+
+cudaError_t stream_query_ticket(const std::shared_ptr<Stream>& stream,
+                                std::uint64_t ticket,
+                                bool* out_complete,
+                                std::string* error_message) {
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_query_ticket received unknown stream type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    return stream_impl->query_ticket(ticket, out_complete, error_message);
+}
+
+cudaError_t stream_wait_ticket(const std::shared_ptr<Stream>& stream,
+                               std::uint64_t ticket,
+                               std::string* error_message) {
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_wait_ticket received unknown stream type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    return stream_impl->wait_ticket(ticket, error_message);
+}
+
+cudaError_t stream_record_marker(const std::shared_ptr<Stream>& stream,
+                                 std::uint64_t* out_ticket,
+                                 std::shared_ptr<EventMarker>* out_marker,
+                                 std::string* error_message) {
+    if (out_ticket == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_record_marker missing output";
+        }
+        return cudaErrorInvalidValue;
+    }
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "stream_record_marker received unknown stream type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+    @autoreleasepool {
+        id<MTLCommandBuffer> marker = [stream_impl->queue() commandBuffer];
+        if (marker == nil) {
+            if (error_message != nullptr) {
+                *error_message = "stream_record_marker failed to create command buffer";
+            }
+            return cudaErrorUnknown;
+        }
+        const auto fences = encode_submission_waits(marker, stream_impl, {});
+        encode_resource_signals(marker, fences);
+        *out_ticket = stream_impl->add_pending(marker);
+        if (out_marker != nullptr) {
+            *out_marker = std::make_shared<EventMarkerImpl>(marker);
+        }
+        [marker commit];
+    }
+    return cudaSuccess;
+}
+
+cudaError_t enqueue_host_function(const std::shared_ptr<Stream>& stream,
+                                  std::function<void()> function,
+                                  std::string* error_message) {
+    if (!function) {
+        if (error_message != nullptr) {
+            *error_message = "enqueue_host_function missing function";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl =
+        std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream_impl == nullptr) {
+        stream_impl = std::dynamic_pointer_cast<StreamImpl>(legacy_default_stream());
+    }
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "enqueue_host_function received unknown stream type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+    id<MTLCommandQueue> queue = stream_impl->queue();
+    @autoreleasepool {
+         
+        id<MTLCommandBuffer> marker = [queue commandBuffer];
+        if (marker == nil) {
+            if (error_message != nullptr) {
+                *error_message = "enqueue_host_function failed to create marker";
+            }
+            return cudaErrorUnknown;
+        }
+        const auto marker_fences = encode_submission_waits(marker, stream_impl, {});
+        encode_resource_signals(marker, marker_fences);
+        stream_impl->add_pending(marker);
+        [marker commit];
+
+        id<MTLSharedEvent> event = stream_impl->access_event();
+        std::uint64_t host_done_value = 0;
+        {
+            BackendState& backend = state();
+            std::scoped_lock lock(backend.mutex, backend.submission_fence_mutex);
+            host_done_value = stream_impl->reserve_access_value();
+            stream_impl->set_latest_host_barrier_value(host_done_value);
+        }
+
+        id<MTLCommandBuffer> completion = [queue commandBuffer];
+        if (completion == nil) {
+             
+            event.signaledValue = host_done_value;
+            if (error_message != nullptr) {
+                *error_message = "enqueue_host_function failed to create completion";
+            }
+            return cudaErrorUnknown;
+        }
+        const auto completion_fences =
+            encode_submission_waits(completion, stream_impl, {});
+        encode_resource_signals(completion, completion_fences);
+
+        {
+            BackendState& backend = state();
+            std::scoped_lock lock(backend.mutex, backend.submission_fence_mutex);
+            stream_impl->set_latest_host_barrier_value(host_done_value);
+        }
+        stream_impl->add_pending(completion);
+        [completion commit];
+
+        stream_impl->add_pending_host_operation();
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+            [marker waitUntilCompleted];
+            try {
+                function();
+            } catch (...) {
+
+            }
+            event.signaledValue = host_done_value;
+            stream_impl->complete_pending_host_operation();
+        });
+    }
+    return cudaSuccess;
+}
+
+cudaError_t gemm_f32(bool transa,
+                     bool transb,
+                     int m,
+                     int n,
+                     int k,
+                     float alpha,
+                     const std::shared_ptr<Buffer>& a_buffer,
+                     std::size_t a_offset_bytes,
+                     int lda,
+                     const std::shared_ptr<Buffer>& b_buffer,
+                     std::size_t b_offset_bytes,
+                     int ldb,
+                     float beta,
+                     const std::shared_ptr<Buffer>& c_buffer,
+                     std::size_t c_offset_bytes,
+                     int ldc,
+                     const std::shared_ptr<Stream>& stream,
+                     std::string* error_message) {
+    const bool synchronous_default = stream == nullptr;
+    if (m < 0 || n < 0 || k < 0 || lda <= 0 || ldb <= 0 || ldc <= 0 || a_buffer == nullptr ||
+        b_buffer == nullptr || c_buffer == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_f32 invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (m == 0 || n == 0 || k == 0) {
+        return cudaSuccess;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    auto* a_impl = dynamic_cast<BufferImpl*>(a_buffer.get());
+    auto* b_impl = dynamic_cast<BufferImpl*>(b_buffer.get());
+    auto* c_impl = dynamic_cast<BufferImpl*>(c_buffer.get());
+    if (a_impl == nullptr || b_impl == nullptr || c_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_f32 unexpected buffer type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    const std::size_t a_cols = static_cast<std::size_t>(transa ? m : k);
+    const std::size_t b_cols = static_cast<std::size_t>(transb ? k : n);
+    const std::size_t c_cols = static_cast<std::size_t>(n);
+    const std::size_t a_span = static_cast<std::size_t>(lda) * a_cols * sizeof(float);
+    const std::size_t b_span = static_cast<std::size_t>(ldb) * b_cols * sizeof(float);
+    const std::size_t c_span = static_cast<std::size_t>(ldc) * c_cols * sizeof(float);
+
+    if (!checked_matrix_span_bytes(a_offset_bytes, a_span, a_impl->length(), "A", error_message) ||
+        !checked_matrix_span_bytes(b_offset_bytes, b_span, b_impl->length(), "B", error_message) ||
+        !checked_matrix_span_bytes(c_offset_bytes, c_span, c_impl->length(), "C", error_message)) {
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    id<MTLCommandQueue> queue = nil;
+    const cudaError_t queue_status =
+        resolve_queue_for_stream(stream, &stream_impl, &queue, error_message);
+    if (queue_status != cudaSuccess) {
+        return queue_status;
+    }
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_f32 failed to create command buffer";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const NSUInteger left_rows = static_cast<NSUInteger>(b_cols);
+        const NSUInteger left_cols = static_cast<NSUInteger>(transb ? n : k);
+        const NSUInteger right_rows = static_cast<NSUInteger>(a_cols);
+        const NSUInteger right_cols = static_cast<NSUInteger>(transa ? k : m);
+        const NSUInteger result_rows = static_cast<NSUInteger>(n);
+        const NSUInteger result_cols = static_cast<NSUInteger>(m);
+        const NSUInteger interior_cols = static_cast<NSUInteger>(k);
+
+        MPSMatrixDescriptor* left_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:left_rows
+                                                  columns:left_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldb) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+        MPSMatrixDescriptor* right_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:right_rows
+                                                  columns:right_cols
+                                                 rowBytes:static_cast<NSUInteger>(lda) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+        MPSMatrixDescriptor* result_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:result_rows
+                                                  columns:result_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldc) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+
+        MPSMatrix* left =
+            [[MPSMatrix alloc] initWithBuffer:b_impl->handle()
+                                       offset:static_cast<NSUInteger>(b_offset_bytes)
+                                   descriptor:left_desc];
+        MPSMatrix* right =
+            [[MPSMatrix alloc] initWithBuffer:a_impl->handle()
+                                       offset:static_cast<NSUInteger>(a_offset_bytes)
+                                   descriptor:right_desc];
+        MPSMatrix* result =
+            [[MPSMatrix alloc] initWithBuffer:c_impl->handle()
+                                       offset:static_cast<NSUInteger>(c_offset_bytes)
+                                   descriptor:result_desc];
+
+        MPSMatrixMultiplication* op =
+            [[MPSMatrixMultiplication alloc] initWithDevice:state().device
+                                              transposeLeft:(transb ? YES : NO)
+                                             transposeRight:(transa ? YES : NO)
+                                                resultRows:result_rows
+                                             resultColumns:result_cols
+                                           interiorColumns:interior_cols
+                                                      alpha:static_cast<double>(alpha)
+                                                       beta:static_cast<double>(beta)];
+        if (op == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_f32 failed to create MPSMatrixMultiplication";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const auto fences =
+            encode_submission_waits(command_buffer, stream_impl, {a_impl, b_impl, c_impl});
+        [op encodeToCommandBuffer:command_buffer leftMatrix:left rightMatrix:right resultMatrix:result];
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+
+        if (!synchronous_default) {
+            stream_impl->add_pending(command_buffer);
+            return cudaSuccess;
+        }
+
+        [command_buffer waitUntilCompleted];
+        return check_command_buffer_status(command_buffer, error_message);
+    }
+}
+
+cudaError_t gemm_f32_epilogue(bool transa,
+                              bool transb,
+                              int m,
+                              int n,
+                              int k,
+                              float alpha,
+                              const std::shared_ptr<Buffer>& a_buffer,
+                              std::size_t a_offset_bytes,
+                              int lda,
+                              const std::shared_ptr<Buffer>& b_buffer,
+                              std::size_t b_offset_bytes,
+                              int ldb,
+                              float beta,
+                              const std::shared_ptr<Buffer>& c_buffer,
+                              std::size_t c_offset_bytes,
+                              int ldc,
+                              const std::shared_ptr<Buffer>& d_buffer,
+                              std::size_t d_offset_bytes,
+                              int ldd,
+                              const std::shared_ptr<Buffer>& bias_buffer,
+                              std::size_t bias_offset_bytes,
+                              GemmEpilogue epilogue,
+                              const std::shared_ptr<Stream>& stream,
+                              std::string* error_message) {
+    const bool synchronous_default = stream == nullptr;
+    const bool has_bias = epilogue == GemmEpilogue::kBias ||
+                          epilogue == GemmEpilogue::kReluBias ||
+                          epilogue == GemmEpilogue::kGeluBias;
+    if (m < 0 || n < 0 || k < 0 || lda <= 0 || ldb <= 0 || ldc <= 0 || ldd <= 0 ||
+        a_buffer == nullptr || b_buffer == nullptr || c_buffer == nullptr ||
+        d_buffer == nullptr || (has_bias && bias_buffer == nullptr) ||
+        epilogue == GemmEpilogue::kNone) {
+        if (error_message != nullptr) *error_message = "gemm_f32_epilogue invalid argument";
+        return cudaErrorInvalidValue;
+    }
+    if (m == 0 || n == 0 || k == 0) return cudaSuccess;
+    if (!ensure_initialized(error_message)) return cudaErrorInitializationError;
+
+    auto* a_impl = dynamic_cast<BufferImpl*>(a_buffer.get());
+    auto* b_impl = dynamic_cast<BufferImpl*>(b_buffer.get());
+    auto* c_impl = dynamic_cast<BufferImpl*>(c_buffer.get());
+    auto* d_impl = dynamic_cast<BufferImpl*>(d_buffer.get());
+    auto* bias_impl = bias_buffer ? dynamic_cast<BufferImpl*>(bias_buffer.get()) : nullptr;
+    if (a_impl == nullptr || b_impl == nullptr || c_impl == nullptr || d_impl == nullptr ||
+        (has_bias && bias_impl == nullptr)) {
+        if (error_message != nullptr) *error_message = "gemm_f32_epilogue unexpected buffer type";
+        return cudaErrorInvalidValue;
+    }
+    const std::size_t a_cols = static_cast<std::size_t>(transa ? m : k);
+    const std::size_t b_cols = static_cast<std::size_t>(transb ? k : n);
+    if (!checked_matrix_span_bytes(a_offset_bytes,
+                                   static_cast<std::size_t>(lda) * a_cols * sizeof(float),
+                                   a_impl->length(), "A", error_message) ||
+        !checked_matrix_span_bytes(b_offset_bytes,
+                                   static_cast<std::size_t>(ldb) * b_cols * sizeof(float),
+                                   b_impl->length(), "B", error_message) ||
+        !checked_matrix_span_bytes(c_offset_bytes,
+                                   static_cast<std::size_t>(ldc) * static_cast<std::size_t>(n) * sizeof(float),
+                                   c_impl->length(), "C", error_message) ||
+        !checked_matrix_span_bytes(d_offset_bytes,
+                                   static_cast<std::size_t>(ldd) * static_cast<std::size_t>(n) * sizeof(float),
+                                   d_impl->length(), "D", error_message) ||
+        (has_bias && !checked_matrix_span_bytes(bias_offset_bytes,
+                                                static_cast<std::size_t>(m) * sizeof(float),
+                                                bias_impl->length(), "bias", error_message))) {
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    id<MTLCommandQueue> queue = nil;
+    const cudaError_t queue_status =
+        resolve_queue_for_stream(stream, &stream_impl, &queue, error_message);
+    if (queue_status != cudaSuccess) return queue_status;
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) *error_message = "gemm_f32_epilogue failed to create command buffer";
+            return cudaErrorUnknown;
+        }
+
+        const int a_stored_rows = transa ? k : m;
+        const int a_stored_cols = transa ? m : k;
+        const int b_stored_rows = transb ? n : k;
+        const int b_stored_cols = transb ? k : n;
+        auto shape2 = [](int rows, int cols) {
+            return @[ @(rows), @(cols) ];
+        };
+
+        static std::mutex cache_mutex;
+        static NSMutableDictionary<NSString*, NSDictionary*>* cache = nil;
+        NSString* key = [NSString stringWithFormat:@"%d,%d,%d,%d,%d,%d",
+                                                   m, n, k, transa ? 1 : 0,
+                                                   transb ? 1 : 0,
+                                                   static_cast<int>(epilogue)];
+        NSDictionary* entry = nil;
+        {
+            std::lock_guard<std::mutex> guard(cache_mutex);
+            if (cache == nil) cache = [[NSMutableDictionary alloc] init];
+            entry = cache[key];
+        }
+        MPSGraphExecutable* executable = nil;
+        NSArray<MPSGraphTensor*>* graph_inputs = nil;
+        MPSGraphTensor* graph_target = nil;
+        if (entry != nil) {
+            executable = entry[@"exec"];
+            graph_inputs = entry[@"inputs"];
+            graph_target = entry[@"target"];
+        } else {
+            MPSGraph* graph = [[MPSGraph alloc] init];
+            MPSGraphTensor* a_ph = [graph placeholderWithShape:shape2(a_stored_cols, a_stored_rows)
+                                                      dataType:MPSDataTypeFloat32 name:@"a"];
+            MPSGraphTensor* b_ph = [graph placeholderWithShape:shape2(b_stored_cols, b_stored_rows)
+                                                      dataType:MPSDataTypeFloat32 name:@"b"];
+            MPSGraphTensor* c_ph = [graph placeholderWithShape:shape2(n, m)
+                                                      dataType:MPSDataTypeFloat32 name:@"c"];
+            MPSGraphTensor* bias_ph = nil;
+            if (has_bias) {
+                bias_ph = [graph placeholderWithShape:shape2(m, 1)
+                                             dataType:MPSDataTypeFloat32 name:@"bias"];
+            }
+            MPSGraphTensor* op_a = transa ? a_ph
+                                          : [graph transposeTensor:a_ph dimension:0
+                                                     withDimension:1 name:@"op_a"];
+            MPSGraphTensor* op_b = transb ? b_ph
+                                          : [graph transposeTensor:b_ph dimension:0
+                                                     withDimension:1 name:@"op_b"];
+            MPSGraphTensor* product = [graph matrixMultiplicationWithPrimaryTensor:op_a
+                                                                   secondaryTensor:op_b
+                                                                              name:@"gemm"];
+            MPSGraphTensor* scaled = [graph multiplicationWithPrimaryTensor:product
+                                                            secondaryTensor:[graph constantWithScalar:alpha
+                                                                                             dataType:MPSDataTypeFloat32]
+                                                                       name:@"alpha"];
+            MPSGraphTensor* c_math = [graph transposeTensor:c_ph dimension:0
+                                              withDimension:1 name:@"c_math"];
+            MPSGraphTensor* beta_c = [graph multiplicationWithPrimaryTensor:c_math
+                                                            secondaryTensor:[graph constantWithScalar:beta
+                                                                                             dataType:MPSDataTypeFloat32]
+                                                                       name:@"beta"];
+            MPSGraphTensor* value = [graph additionWithPrimaryTensor:scaled
+                                                     secondaryTensor:beta_c name:@"accumulate"];
+            if (has_bias) {
+                value = [graph additionWithPrimaryTensor:value
+                                         secondaryTensor:bias_ph name:@"bias_add"];
+            }
+            if (epilogue == GemmEpilogue::kRelu || epilogue == GemmEpilogue::kReluBias) {
+                value = [graph reLUWithTensor:value name:@"relu"];
+            } else if (epilogue == GemmEpilogue::kGelu || epilogue == GemmEpilogue::kGeluBias) {
+                 
+                MPSGraphTensor* x2 = [graph multiplicationWithPrimaryTensor:value
+                                                            secondaryTensor:value name:@"x2"];
+                MPSGraphTensor* x3 = [graph multiplicationWithPrimaryTensor:x2
+                                                            secondaryTensor:value name:@"x3"];
+                MPSGraphTensor* inner_term = [graph multiplicationWithPrimaryTensor:x3
+                                                                    secondaryTensor:[graph constantWithScalar:0.044715
+                                                                                                     dataType:MPSDataTypeFloat32]
+                                                                               name:@"x3_scaled"];
+                MPSGraphTensor* inner_sum = [graph additionWithPrimaryTensor:value
+                                                             secondaryTensor:inner_term name:@"gelu_sum"];
+                MPSGraphTensor* inner = [graph multiplicationWithPrimaryTensor:inner_sum
+                                                               secondaryTensor:[graph constantWithScalar:0.7978845608
+                                                                                                dataType:MPSDataTypeFloat32]
+                                                                          name:@"gelu_inner"];
+                MPSGraphTensor* tanh_inner = [graph tanhWithTensor:inner name:@"gelu_tanh"];
+                MPSGraphTensor* one_plus = [graph additionWithPrimaryTensor:tanh_inner
+                                                            secondaryTensor:[graph constantWithScalar:1.0
+                                                                                             dataType:MPSDataTypeFloat32]
+                                                                       name:@"gelu_one_plus"];
+                MPSGraphTensor* half_x = [graph multiplicationWithPrimaryTensor:value
+                                                                secondaryTensor:[graph constantWithScalar:0.5
+                                                                                                 dataType:MPSDataTypeFloat32]
+                                                                           name:@"gelu_half"];
+                value = [graph multiplicationWithPrimaryTensor:half_x
+                                               secondaryTensor:one_plus name:@"gelu"];
+            }
+            graph_target = [graph transposeTensor:value dimension:0
+                                    withDimension:1 name:@"d_transposed"];
+            NSMutableArray<MPSGraphTensor*>* inputs = [NSMutableArray arrayWithObjects:a_ph, b_ph, c_ph, nil];
+            NSMutableDictionary<MPSGraphTensor*, MPSGraphShapedType*>* feeds =
+                [NSMutableDictionary dictionary];
+            feeds[a_ph] = [[MPSGraphShapedType alloc] initWithShape:shape2(a_stored_cols, a_stored_rows)
+                                                           dataType:MPSDataTypeFloat32];
+            feeds[b_ph] = [[MPSGraphShapedType alloc] initWithShape:shape2(b_stored_cols, b_stored_rows)
+                                                           dataType:MPSDataTypeFloat32];
+            feeds[c_ph] = [[MPSGraphShapedType alloc] initWithShape:shape2(n, m)
+                                                           dataType:MPSDataTypeFloat32];
+            if (bias_ph != nil) {
+                [inputs addObject:bias_ph];
+                feeds[bias_ph] = [[MPSGraphShapedType alloc] initWithShape:shape2(m, 1)
+                                                                  dataType:MPSDataTypeFloat32];
+            }
+            graph_inputs = inputs;
+            executable = [graph compileWithDevice:[MPSGraphDevice deviceWithMTLDevice:state().device]
+                                            feeds:feeds
+                                    targetTensors:@[ graph_target ]
+                                 targetOperations:nil
+                            compilationDescriptor:nil];
+            if (executable == nil) {
+                if (error_message != nullptr) *error_message = "gemm_f32_epilogue failed to compile MPSGraph";
+                return cudaErrorUnknown;
+            }
+            std::lock_guard<std::mutex> guard(cache_mutex);
+            cache[key] = @{@"exec" : executable, @"inputs" : graph_inputs, @"target" : graph_target};
+        }
+
+        auto make_matrix = [](BufferImpl* impl, std::size_t offset, int rows, int cols, int ld) {
+            MPSMatrixDescriptor* descriptor =
+                [MPSMatrixDescriptor matrixDescriptorWithRows:static_cast<NSUInteger>(rows)
+                                                      columns:static_cast<NSUInteger>(cols)
+                                                     rowBytes:static_cast<NSUInteger>(ld) * sizeof(float)
+                                                     dataType:MPSDataTypeFloat32];
+            return [[MPSMatrix alloc] initWithBuffer:impl->handle()
+                                              offset:static_cast<NSUInteger>(offset)
+                                          descriptor:descriptor];
+        };
+        MPSMatrix* matrix_a = make_matrix(a_impl, a_offset_bytes, a_stored_cols, a_stored_rows, lda);
+        MPSMatrix* matrix_b = make_matrix(b_impl, b_offset_bytes, b_stored_cols, b_stored_rows, ldb);
+        MPSMatrix* matrix_c = make_matrix(c_impl, c_offset_bytes, n, m, ldc);
+        MPSMatrix* matrix_d = make_matrix(d_impl, d_offset_bytes, n, m, ldd);
+        NSMutableArray<MPSGraphTensorData*>* input_data =
+            [NSMutableArray arrayWithObjects:[[MPSGraphTensorData alloc] initWithMPSMatrix:matrix_a],
+                                             [[MPSGraphTensorData alloc] initWithMPSMatrix:matrix_b],
+                                             [[MPSGraphTensorData alloc] initWithMPSMatrix:matrix_c],
+                                             nil];
+        if (has_bias) {
+            MPSMatrix* matrix_bias = make_matrix(bias_impl, bias_offset_bytes, m, 1, 1);
+            [input_data addObject:[[MPSGraphTensorData alloc] initWithMPSMatrix:matrix_bias]];
+        }
+        MPSGraphTensorData* result_data = [[MPSGraphTensorData alloc] initWithMPSMatrix:matrix_d];
+
+        MPSCommandBuffer* mps_buffer = [MPSCommandBuffer commandBufferWithCommandBuffer:command_buffer];
+        std::vector<BufferImpl*> fence_buffers{a_impl, b_impl, c_impl, d_impl};
+        if (bias_impl != nullptr) fence_buffers.push_back(bias_impl);
+        const auto fences = encode_submission_waits(command_buffer, stream_impl, fence_buffers);
+        [executable encodeToCommandBuffer:mps_buffer
+                              inputsArray:input_data
+                             resultsArray:@[ result_data ]
+                      executionDescriptor:nil];
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+
+        if (!synchronous_default) {
+            stream_impl->add_pending(command_buffer);
+            return cudaSuccess;
+        }
+        [command_buffer waitUntilCompleted];
+        return check_command_buffer_status(command_buffer, error_message);
+    }
+}
+
+cudaError_t gemm_f16(bool transa,
+                     bool transb,
+                     int m,
+                     int n,
+                     int k,
+                     float alpha,
+                     const std::shared_ptr<Buffer>& a_buffer,
+                     std::size_t a_offset_bytes,
+                     int lda,
+                     const std::shared_ptr<Buffer>& b_buffer,
+                     std::size_t b_offset_bytes,
+                     int ldb,
+                     float beta,
+                     const std::shared_ptr<Buffer>& c_buffer,
+                     std::size_t c_offset_bytes,
+                     int ldc,
+                     const std::shared_ptr<Stream>& stream,
+                     std::string* error_message) {
+    const bool synchronous_default = stream == nullptr;
+    if (m < 0 || n < 0 || k < 0 || lda <= 0 || ldb <= 0 || ldc <= 0 ||
+        a_buffer == nullptr || b_buffer == nullptr || c_buffer == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_f16 invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (m == 0 || n == 0 || k == 0) {
+        return cudaSuccess;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    auto* a_impl = dynamic_cast<BufferImpl*>(a_buffer.get());
+    auto* b_impl = dynamic_cast<BufferImpl*>(b_buffer.get());
+    auto* c_impl = dynamic_cast<BufferImpl*>(c_buffer.get());
+    if (a_impl == nullptr || b_impl == nullptr || c_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_f16 unexpected buffer type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    constexpr std::size_t element_bytes = sizeof(std::uint16_t);
+    const std::size_t a_cols = static_cast<std::size_t>(transa ? m : k);
+    const std::size_t b_cols = static_cast<std::size_t>(transb ? k : n);
+    const std::size_t c_cols = static_cast<std::size_t>(n);
+    const std::size_t a_span = static_cast<std::size_t>(lda) * a_cols * element_bytes;
+    const std::size_t b_span = static_cast<std::size_t>(ldb) * b_cols * element_bytes;
+    const std::size_t c_span = static_cast<std::size_t>(ldc) * c_cols * element_bytes;
+    if (!checked_matrix_span_bytes(a_offset_bytes, a_span, a_impl->length(), "A", error_message) ||
+        !checked_matrix_span_bytes(b_offset_bytes, b_span, b_impl->length(), "B", error_message) ||
+        !checked_matrix_span_bytes(c_offset_bytes, c_span, c_impl->length(), "C", error_message)) {
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    id<MTLCommandQueue> queue = nil;
+    const cudaError_t queue_status =
+        resolve_queue_for_stream(stream, &stream_impl, &queue, error_message);
+    if (queue_status != cudaSuccess) {
+        return queue_status;
+    }
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_f16 failed to create command buffer";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const NSUInteger left_rows = static_cast<NSUInteger>(b_cols);
+        const NSUInteger left_cols = static_cast<NSUInteger>(transb ? n : k);
+        const NSUInteger right_rows = static_cast<NSUInteger>(a_cols);
+        const NSUInteger right_cols = static_cast<NSUInteger>(transa ? k : m);
+        const NSUInteger result_rows = static_cast<NSUInteger>(n);
+        const NSUInteger result_cols = static_cast<NSUInteger>(m);
+        const NSUInteger interior_cols = static_cast<NSUInteger>(k);
+
+        MPSMatrixDescriptor* left_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:left_rows
+                                                  columns:left_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldb) * element_bytes
+                                                 dataType:MPSDataTypeFloat16];
+        MPSMatrixDescriptor* right_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:right_rows
+                                                  columns:right_cols
+                                                 rowBytes:static_cast<NSUInteger>(lda) * element_bytes
+                                                 dataType:MPSDataTypeFloat16];
+        MPSMatrixDescriptor* result_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:result_rows
+                                                  columns:result_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldc) * element_bytes
+                                                 dataType:MPSDataTypeFloat16];
+
+        MPSMatrix* left = [[MPSMatrix alloc]
+            initWithBuffer:b_impl->handle()
+                     offset:static_cast<NSUInteger>(b_offset_bytes)
+                 descriptor:left_desc];
+        MPSMatrix* right = [[MPSMatrix alloc]
+            initWithBuffer:a_impl->handle()
+                     offset:static_cast<NSUInteger>(a_offset_bytes)
+                 descriptor:right_desc];
+        MPSMatrix* result = [[MPSMatrix alloc]
+            initWithBuffer:c_impl->handle()
+                     offset:static_cast<NSUInteger>(c_offset_bytes)
+                 descriptor:result_desc];
+
+        MPSMatrixMultiplication* op = [[MPSMatrixMultiplication alloc]
+            initWithDevice:state().device
+             transposeLeft:(transb ? YES : NO)
+            transposeRight:(transa ? YES : NO)
+               resultRows:result_rows
+            resultColumns:result_cols
+          interiorColumns:interior_cols
+                     alpha:static_cast<double>(alpha)
+                      beta:static_cast<double>(beta)];
+        if (op == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_f16 failed to create MPSMatrixMultiplication";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const auto fences =
+            encode_submission_waits(command_buffer, stream_impl, {a_impl, b_impl, c_impl});
+        [op encodeToCommandBuffer:command_buffer
+                       leftMatrix:left
+                      rightMatrix:right
+                     resultMatrix:result];
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+        if (!synchronous_default) {
+            stream_impl->add_pending(command_buffer);
+            return cudaSuccess;
+        }
+        [command_buffer waitUntilCompleted];
+        return check_command_buffer_status(command_buffer, error_message);
+    }
+}
+
+cudaError_t gemm_f16_f32(bool transa,
+                         bool transb,
+                         int m,
+                         int n,
+                         int k,
+                         float alpha,
+                         const std::shared_ptr<Buffer>& a_buffer,
+                         std::size_t a_offset_bytes,
+                         int lda,
+                         const std::shared_ptr<Buffer>& b_buffer,
+                         std::size_t b_offset_bytes,
+                         int ldb,
+                         float beta,
+                         const std::shared_ptr<Buffer>& c_buffer,
+                         std::size_t c_offset_bytes,
+                         int ldc,
+                         const std::shared_ptr<Stream>& stream,
+                         std::string* error_message) {
+    const bool synchronous_default = stream == nullptr;
+    if (m < 0 || n < 0 || k < 0 || lda <= 0 || ldb <= 0 || ldc <= 0 ||
+        a_buffer == nullptr || b_buffer == nullptr || c_buffer == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_f16_f32 invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (m == 0 || n == 0 || k == 0) {
+        return cudaSuccess;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    auto* a_impl = dynamic_cast<BufferImpl*>(a_buffer.get());
+    auto* b_impl = dynamic_cast<BufferImpl*>(b_buffer.get());
+    auto* c_impl = dynamic_cast<BufferImpl*>(c_buffer.get());
+    if (a_impl == nullptr || b_impl == nullptr || c_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_f16_f32 unexpected buffer type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    const std::size_t a_cols = static_cast<std::size_t>(transa ? m : k);
+    const std::size_t b_cols = static_cast<std::size_t>(transb ? k : n);
+    const std::size_t c_cols = static_cast<std::size_t>(n);
+    const std::size_t a_span = static_cast<std::size_t>(lda) * a_cols * sizeof(std::uint16_t);
+    const std::size_t b_span = static_cast<std::size_t>(ldb) * b_cols * sizeof(std::uint16_t);
+    const std::size_t c_span = static_cast<std::size_t>(ldc) * c_cols * sizeof(float);
+    if (!checked_matrix_span_bytes(a_offset_bytes, a_span, a_impl->length(), "A", error_message) ||
+        !checked_matrix_span_bytes(b_offset_bytes, b_span, b_impl->length(), "B", error_message) ||
+        !checked_matrix_span_bytes(c_offset_bytes, c_span, c_impl->length(), "C", error_message)) {
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    id<MTLCommandQueue> queue = nil;
+    const cudaError_t queue_status =
+        resolve_queue_for_stream(stream, &stream_impl, &queue, error_message);
+    if (queue_status != cudaSuccess) {
+        return queue_status;
+    }
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_f16_f32 failed to create command buffer";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const NSUInteger left_rows = static_cast<NSUInteger>(b_cols);
+        const NSUInteger left_cols = static_cast<NSUInteger>(transb ? n : k);
+        const NSUInteger right_rows = static_cast<NSUInteger>(a_cols);
+        const NSUInteger right_cols = static_cast<NSUInteger>(transa ? k : m);
+        const NSUInteger result_rows = static_cast<NSUInteger>(n);
+        const NSUInteger result_cols = static_cast<NSUInteger>(m);
+
+        MPSMatrixDescriptor* left_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:left_rows
+                                                  columns:left_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldb) * sizeof(std::uint16_t)
+                                                 dataType:MPSDataTypeFloat16];
+        MPSMatrixDescriptor* right_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:right_rows
+                                                  columns:right_cols
+                                                 rowBytes:static_cast<NSUInteger>(lda) * sizeof(std::uint16_t)
+                                                 dataType:MPSDataTypeFloat16];
+        MPSMatrixDescriptor* result_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:result_rows
+                                                  columns:result_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldc) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+
+        MPSMatrix* left = [[MPSMatrix alloc] initWithBuffer:b_impl->handle()
+                                                     offset:static_cast<NSUInteger>(b_offset_bytes)
+                                                 descriptor:left_desc];
+        MPSMatrix* right = [[MPSMatrix alloc] initWithBuffer:a_impl->handle()
+                                                      offset:static_cast<NSUInteger>(a_offset_bytes)
+                                                  descriptor:right_desc];
+        MPSMatrix* result = [[MPSMatrix alloc] initWithBuffer:c_impl->handle()
+                                                       offset:static_cast<NSUInteger>(c_offset_bytes)
+                                                   descriptor:result_desc];
+        MPSMatrixMultiplication* op = [[MPSMatrixMultiplication alloc]
+            initWithDevice:state().device
+             transposeLeft:(transb ? YES : NO)
+            transposeRight:(transa ? YES : NO)
+               resultRows:result_rows
+            resultColumns:result_cols
+          interiorColumns:static_cast<NSUInteger>(k)
+                     alpha:static_cast<double>(alpha)
+                      beta:static_cast<double>(beta)];
+        if (op == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_f16_f32 failed to create MPSMatrixMultiplication";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const auto fences =
+            encode_submission_waits(command_buffer, stream_impl, {a_impl, b_impl, c_impl});
+        [op encodeToCommandBuffer:command_buffer
+                       leftMatrix:left
+                      rightMatrix:right
+                     resultMatrix:result];
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+        if (!synchronous_default) {
+            stream_impl->add_pending(command_buffer);
+            return cudaSuccess;
+        }
+        [command_buffer waitUntilCompleted];
+        return check_command_buffer_status(command_buffer, error_message);
+    }
+}
+
+cudaError_t gemm_strided_batched_f32(bool transa,
+                                     bool transb,
+                                     int m,
+                                     int n,
+                                     int k,
+                                     float alpha,
+                                     const std::shared_ptr<Buffer>& a_buffer,
+                                     std::size_t a_offset_bytes,
+                                     int lda,
+                                     std::size_t stridea_bytes,
+                                     const std::shared_ptr<Buffer>& b_buffer,
+                                     std::size_t b_offset_bytes,
+                                     int ldb,
+                                     std::size_t strideb_bytes,
+                                     float beta,
+                                     const std::shared_ptr<Buffer>& c_buffer,
+                                     std::size_t c_offset_bytes,
+                                     int ldc,
+                                     std::size_t stridec_bytes,
+                                     int batch_count,
+                                     const std::shared_ptr<Stream>& stream,
+                                     std::string* error_message) {
+    const bool synchronous_default = stream == nullptr;
+    if (batch_count < 0) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_strided_batched_f32 invalid batch_count";
+        }
+        return cudaErrorInvalidValue;
+    }
+    if (batch_count == 0 || m == 0 || n == 0 || k == 0) {
+        return cudaSuccess;
+    }
+
+    if (m < 0 || n < 0 || k < 0 || lda <= 0 || ldb <= 0 || ldc <= 0 || a_buffer == nullptr ||
+        b_buffer == nullptr || c_buffer == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_strided_batched_f32 invalid argument";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    auto* a_impl = dynamic_cast<BufferImpl*>(a_buffer.get());
+    auto* b_impl = dynamic_cast<BufferImpl*>(b_buffer.get());
+    auto* c_impl = dynamic_cast<BufferImpl*>(c_buffer.get());
+    if (a_impl == nullptr || b_impl == nullptr || c_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "gemm_strided_batched_f32 unexpected buffer type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    const std::size_t a_cols = static_cast<std::size_t>(transa ? m : k);
+    const std::size_t b_cols = static_cast<std::size_t>(transb ? k : n);
+    const std::size_t c_cols = static_cast<std::size_t>(n);
+    const std::size_t a_span = static_cast<std::size_t>(lda) * a_cols * sizeof(float);
+    const std::size_t b_span = static_cast<std::size_t>(ldb) * b_cols * sizeof(float);
+    const std::size_t c_span = static_cast<std::size_t>(ldc) * c_cols * sizeof(float);
+    const std::size_t batch_index = static_cast<std::size_t>(batch_count - 1);
+    const std::size_t a_total_span = batch_index * stridea_bytes + a_span;
+    const std::size_t b_total_span = batch_index * strideb_bytes + b_span;
+    const std::size_t c_total_span = batch_index * stridec_bytes + c_span;
+
+    if (!checked_matrix_span_bytes(a_offset_bytes, a_total_span, a_impl->length(), "A", error_message) ||
+        !checked_matrix_span_bytes(b_offset_bytes, b_total_span, b_impl->length(), "B", error_message) ||
+        !checked_matrix_span_bytes(c_offset_bytes, c_total_span, c_impl->length(), "C", error_message)) {
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    id<MTLCommandQueue> queue = nil;
+    const cudaError_t queue_status =
+        resolve_queue_for_stream(stream, &stream_impl, &queue, error_message);
+    if (queue_status != cudaSuccess) {
+        return queue_status;
+    }
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    (void)stream_impl->flush_open_batch_locked();
+    flush_other_open_batches(stream_impl);
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_strided_batched_f32 failed to create command buffer";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const NSUInteger left_rows = static_cast<NSUInteger>(b_cols);
+        const NSUInteger left_cols = static_cast<NSUInteger>(transb ? n : k);
+        const NSUInteger right_rows = static_cast<NSUInteger>(a_cols);
+        const NSUInteger right_cols = static_cast<NSUInteger>(transa ? k : m);
+        const NSUInteger result_rows = static_cast<NSUInteger>(n);
+        const NSUInteger result_cols = static_cast<NSUInteger>(m);
+        const NSUInteger interior_cols = static_cast<NSUInteger>(k);
+
+        MPSMatrixDescriptor* left_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:left_rows
+                                                  columns:left_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldb) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+        MPSMatrixDescriptor* right_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:right_rows
+                                                  columns:right_cols
+                                                 rowBytes:static_cast<NSUInteger>(lda) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+        MPSMatrixDescriptor* result_desc =
+            [MPSMatrixDescriptor matrixDescriptorWithRows:result_rows
+                                                  columns:result_cols
+                                                 rowBytes:static_cast<NSUInteger>(ldc) * sizeof(float)
+                                                 dataType:MPSDataTypeFloat32];
+
+        MPSMatrixMultiplication* op =
+            [[MPSMatrixMultiplication alloc] initWithDevice:state().device
+                                              transposeLeft:(transb ? YES : NO)
+                                             transposeRight:(transa ? YES : NO)
+                                                resultRows:result_rows
+                                             resultColumns:result_cols
+                                           interiorColumns:interior_cols
+                                                      alpha:static_cast<double>(alpha)
+                                                       beta:static_cast<double>(beta)];
+        if (op == nil) {
+            if (error_message != nullptr) {
+                *error_message = "gemm_strided_batched_f32 failed to create MPSMatrixMultiplication";
+            }
+            return cudaErrorUnknown;
+        }
+
+        const auto fences =
+            encode_submission_waits(command_buffer, stream_impl, {a_impl, b_impl, c_impl});
+        for (int batch = 0; batch < batch_count; ++batch) {
+            const std::size_t bindex = static_cast<std::size_t>(batch);
+            MPSMatrix* left =
+                [[MPSMatrix alloc] initWithBuffer:b_impl->handle()
+                                           offset:static_cast<NSUInteger>(b_offset_bytes + bindex * strideb_bytes)
+                                       descriptor:left_desc];
+            MPSMatrix* right =
+                [[MPSMatrix alloc] initWithBuffer:a_impl->handle()
+                                           offset:static_cast<NSUInteger>(a_offset_bytes + bindex * stridea_bytes)
+                                       descriptor:right_desc];
+            MPSMatrix* result =
+                [[MPSMatrix alloc] initWithBuffer:c_impl->handle()
+                                           offset:static_cast<NSUInteger>(c_offset_bytes + bindex * stridec_bytes)
+                                       descriptor:result_desc];
+            [op encodeToCommandBuffer:command_buffer leftMatrix:left rightMatrix:right resultMatrix:result];
+        }
+
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+        if (!synchronous_default) {
+            stream_impl->add_pending(command_buffer);
+            return cudaSuccess;
+        }
+
+        [command_buffer waitUntilCompleted];
+        return check_command_buffer_status(command_buffer, error_message);
+    }
+}
+
+cudaError_t blit_copy(const std::shared_ptr<Buffer>& dst_buffer,
+                      std::size_t dst_offset,
+                      const std::shared_ptr<Buffer>& src_buffer,
+                      std::size_t src_offset,
+                      std::size_t bytes,
+                      const std::shared_ptr<Stream>& stream,
+                      std::string* error_message) {
+    if (bytes == 0) {
+        return cudaSuccess;
+    }
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+    auto* dst_impl = dynamic_cast<BufferImpl*>(dst_buffer.get());
+    auto* src_impl = dynamic_cast<BufferImpl*>(src_buffer.get());
+    if (dst_impl == nullptr || src_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "blit_copy received unexpected buffer type";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    BackendState& backend = state();
+    if (stream_impl == nullptr) {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        stream_impl = backend.default_stream;
+    }
+    if (stream_impl == nullptr) {
+        if (error_message != nullptr) {
+            *error_message = "blit_copy has no stream to submit on";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    std::unique_lock<std::mutex> batch_lock(backend.batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    @autoreleasepool {
+        std::vector<BufferImpl*> fence_buffers{dst_impl, src_impl};
+        id<MTLBlitCommandEncoder> encoder = nil;
+        if (max_batch_dispatches() > 0 && stream_impl->has_open_batch() &&
+            (mixed_encoder_batching_enabled() ||
+             stream_impl->batch_kind_is(StreamImpl::EncoderKind::kBlit)) &&
+            stream_impl->open_batch_dispatches() < max_batch_dispatches() &&
+            try_extend_submission(stream_impl, fence_buffers, stream_impl->open_batch_value(),
+                                  stream_impl->open_batch_waits())) {
+            encoder = stream_impl->batch_blit_encoder();
+            if (encoder != nil) {
+                stream_impl->note_batch_dispatch();
+            }
+        }
+
+        id<MTLCommandBuffer> command_buffer = nil;
+        std::vector<ResourceFenceReservation> fences;
+        if (encoder == nil) {
+            (void)stream_impl->flush_open_batch_locked();
+            flush_other_open_batches(stream_impl);
+            command_buffer = [stream_impl->queue() commandBuffer];
+            if (command_buffer == nil) {
+                if (error_message != nullptr) {
+                    *error_message = "blit_copy failed to create command buffer";
+                }
+                return cudaErrorUnknown;
+            }
+            std::vector<ResourceFenceReservation> waits;
+            fences = encode_submission_waits(command_buffer, stream_impl,
+                                             std::move(fence_buffers), &waits);
+            encoder = [command_buffer blitCommandEncoder];
+            if (encoder == nil) {
+                if (error_message != nullptr) {
+                    *error_message = "blit_copy failed to create blit encoder";
+                }
+                return cudaErrorUnknown;
+            }
+            if (max_batch_dispatches() > 0) {
+                stream_impl->begin_batch(command_buffer, encoder,
+                                         StreamImpl::EncoderKind::kBlit, fences,
+                                         std::move(waits),
+                                         fences.empty() ? 0 : fences.front().signal_value);
+            }
+        }
+
+        [encoder copyFromBuffer:src_impl->handle()
+                   sourceOffset:src_offset
+                       toBuffer:dst_impl->handle()
+              destinationOffset:dst_offset
+                           size:bytes];
+
+        if (max_batch_dispatches() > 0) {
+            return cudaSuccess;
+        }
+        [encoder endEncoding];
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+        stream_impl->add_pending(command_buffer);
+        return cudaSuccess;
+    }
+}
+
+static bool launch_arg_binds_index(const std::vector<KernelArg>& args,
+                                   std::size_t index) {
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::size_t binding =
+            args[i].binding_index == std::numeric_limits<std::size_t>::max()
+                ? i
+                : args[i].binding_index;
+        if (binding == index) return true;
+    }
+    return false;
+}
+
+cudaError_t launch_kernel(const std::string& metallib_path,
+                          const std::string& kernel_name,
+                          const LaunchConfig& config,
+                          const std::vector<KernelArg>& args,
+                          const std::shared_ptr<Stream>& stream,
+                          std::string* error_message) {
+    if (metallib_path.empty() || kernel_name.empty()) {
+        if (error_message != nullptr) {
+            *error_message = "launch_kernel requires metallib path and kernel name";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (args.size() > 31) {
+        if (error_message != nullptr) {
+            *error_message = "kernel argument count exceeds Metal argument index limit (31)";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (config.grid.x == 0 || config.grid.y == 0 || config.grid.z == 0 || config.block.x == 0 ||
+        config.block.y == 0 || config.block.z == 0) {
+        if (error_message != nullptr) {
+            *error_message = "launch dimensions must be non-zero";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    std::shared_ptr<StreamImpl> stream_impl;
+    if (stream != nullptr) {
+        stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+        if (stream_impl == nullptr) {
+            if (error_message != nullptr) {
+                *error_message = "launch_kernel received unknown stream type";
+            }
+            return cudaErrorInvalidValue;
+        }
+    }
+
+    BackendState& backend = state();
+    id<MTLComputePipelineState> pipeline = nil;
+    id<MTLCommandQueue> queue = nil;
+    std::string lowering_source = "unknown";
+    std::string math_mode = "precompiled";
+    bool compile_cache_hit = false;
+    std::shared_ptr<Buffer> trap_status;
+    bool needs_trap_status = false;
+    bool needs_lock_bank = false;
+    bool needs_device_clock = false;
+    bool needs_grid_barrier = false;
+    bool needs_grid_y_offset = false;
+    std::shared_ptr<Buffer> lock_bank;
+    std::shared_ptr<Buffer> device_clock;
+    std::shared_ptr<Buffer> grid_barrier;
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        const std::string pipeline_cache_key = metallib_path + "::" + kernel_name;
+        compile_cache_hit =
+            backend.pipeline_cache.find(pipeline_cache_key) != backend.pipeline_cache.end();
+        pipeline = load_pipeline_locked(backend, metallib_path, kernel_name, error_message);
+        if (pipeline == nil) {
+            return cudaErrorInvalidValue;
+        }
+        needs_trap_status = backend.pipeline_uses_trap_status[pipeline_cache_key];
+        needs_lock_bank = backend.pipeline_uses_lock_bank[pipeline_cache_key];
+        needs_device_clock = backend.pipeline_uses_device_clock[pipeline_cache_key];
+        needs_grid_barrier = backend.pipeline_uses_grid_barrier[pipeline_cache_key];
+        needs_grid_y_offset = backend.pipeline_uses_grid_y_offset[pipeline_cache_key];
+        const auto source_it = backend.library_lowering_source.find(metallib_path);
+        if (source_it != backend.library_lowering_source.end()) {
+            lowering_source = source_it->second;
+        }
+        const auto math_mode_it =
+            backend.library_math_mode.find(metallib_path);
+        if (math_mode_it != backend.library_math_mode.end()) {
+            math_mode = math_mode_it->second;
+        }
+        if (!config.provenance.empty()) {
+            lowering_source = config.provenance;
+        }
+
+        if (stream_impl == nullptr) {
+            stream_impl = backend.default_stream;
+        }
+        queue = stream_impl != nullptr ? stream_impl->queue() : backend.queue;
+    }
+    if (needs_lock_bank &&
+        launch_arg_binds_index(args, cumetal::ptx::kAtomicLockBankBindingIndex)) {
+        needs_lock_bank = false;
+    }
+    if (needs_device_clock &&
+        launch_arg_binds_index(args, cumetal::ptx::kDeviceClockBindingIndex)) {
+        needs_device_clock = false;
+    }
+    if (needs_grid_barrier &&
+        launch_arg_binds_index(args, cumetal::ptx::kGridBarrierBindingIndex)) {
+        needs_grid_barrier = false;
+    }
+    if (needs_grid_y_offset &&
+        launch_arg_binds_index(args, cumetal::ptx::kGridYOffsetBindingIndex)) {
+        needs_grid_y_offset = false;
+    }
+    if (needs_trap_status) {
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            const auto binding = args[i].binding_index == std::numeric_limits<std::size_t>::max()
+                                     ? i : args[i].binding_index;
+            if (binding == cumetal::abi::kTrapStatusBindingIndex) {
+                if (error_message) *error_message = "kernel argument conflicts with trap status binding";
+                return cudaErrorInvalidValue;
+            }
+        }
+        const auto status = allocate_buffer(sizeof(std::uint32_t), &trap_status, error_message);
+        if (status != cudaSuccess) return status;
+        std::memset(trap_status->contents(), 0, sizeof(std::uint32_t));
+    }
+    if (needs_lock_bank) {
+        lock_bank = ensure_atomic_lock_bank(error_message);
+        if (lock_bank == nullptr) {
+            return cudaErrorMemoryAllocation;
+        }
+    }
+    if (needs_device_clock) {
+        device_clock = ensure_device_clock(error_message);
+        if (device_clock == nullptr) {
+            return cudaErrorMemoryAllocation;
+        }
+    }
+    if (needs_grid_barrier) {
+        grid_barrier = allocate_grid_barrier(error_message);
+        if (grid_barrier == nullptr) {
+            return cudaErrorMemoryAllocation;
+        }
+    }
+
+    constexpr unsigned int kMaxChunkGridY = 16;
+    if (needs_grid_y_offset && config.grid.y > kMaxChunkGridY) {
+        for (unsigned int y = 0; y < config.grid.y; y += kMaxChunkGridY) {
+            LaunchConfig chunk = config;
+            chunk.grid.y = std::min(kMaxChunkGridY, config.grid.y - y);
+            chunk.grid_y_offset = config.grid_y_offset + y;
+            chunk.disable_batching = true;
+            const cudaError_t status = launch_kernel(
+                metallib_path, kernel_name, chunk, args, stream, error_message);
+            if (status != cudaSuccess) return status;
+        }
+        return cudaSuccess;
+    }
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+
+    @autoreleasepool {
+        std::vector<BufferImpl*> fence_buffers;
+        fence_buffers.reserve(args.size() + config.resident_buffers.size());
+        std::unordered_set<BufferImpl*> seen_fence_buffers;
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            if (args[i].kind == KernelArg::Kind::kBytes) {
+
+                if (args[i].bytes.empty() || args[i].bytes.size() > 32764) {
+                    if (error_message != nullptr) {
+                        *error_message = "kernel arg " + std::to_string(i) +
+                                         " has invalid byte payload";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+                continue;
+            }
+            if (args[i].buffer == nullptr) {
+                continue;
+            }
+            auto* buffer_impl = dynamic_cast<BufferImpl*>(args[i].buffer.get());
+            if (buffer_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "kernel arg " + std::to_string(i) +
+                                     " has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            if (seen_fence_buffers.insert(buffer_impl).second) {
+                fence_buffers.push_back(buffer_impl);
+            }
+        }
+        for (std::size_t i = 0; i < config.resident_buffers.size(); ++i) {
+            if (config.resident_buffers[i] == nullptr) continue;
+            auto* buffer_impl =
+                dynamic_cast<BufferImpl*>(config.resident_buffers[i].get());
+            if (buffer_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "resident buffer " + std::to_string(i) +
+                                     " has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            if (seen_fence_buffers.insert(buffer_impl).second) {
+                fence_buffers.push_back(buffer_impl);
+            }
+        }
+
+        const bool trace_async =
+            stream_impl != nullptr && env_truthy(std::getenv("CUMETAL_TRACE_GPU"));
+        const bool batching_allowed =
+            stream_impl != nullptr && !trap_status && !trace_async && !config.disable_batching &&
+            max_batch_dispatches() > 0;
+
+        id<MTLComputeCommandEncoder> encoder = nil;
+        bool batched = false;
+        if (batching_allowed && stream_impl->has_open_batch() &&
+            (mixed_encoder_batching_enabled() ||
+             stream_impl->batch_kind_is(StreamImpl::EncoderKind::kCompute)) &&
+            stream_impl->open_batch_dispatches() < max_batch_dispatches() &&
+            try_extend_submission(stream_impl, fence_buffers,
+                                  stream_impl->open_batch_value(),
+                                  stream_impl->open_batch_waits())) {
+            encoder = stream_impl->batch_compute_encoder();
+            if (encoder != nil) {
+                stream_impl->note_batch_dispatch();
+                batched = true;
+            }
+        }
+
+        id<MTLCommandBuffer> command_buffer = nil;
+        std::vector<ResourceFenceReservation> fences;
+        if (!batched) {
+
+            (void)stream_impl->flush_open_batch_locked();
+            flush_other_open_batches(stream_impl);
+            command_buffer = [queue commandBuffer];
+            if (command_buffer == nil) {
+                if (error_message != nullptr) {
+                    *error_message = "failed to create command buffer";
+                }
+                return cudaErrorUnknown;
+            }
+            std::vector<ResourceFenceReservation> waits;
+            fences = encode_submission_waits(command_buffer, stream_impl,
+                                             std::move(fence_buffers), &waits);
+            encoder = [command_buffer computeCommandEncoder];
+            if (encoder == nil) {
+                if (error_message != nullptr) {
+                    *error_message = "failed to create compute encoder";
+                }
+                return cudaErrorUnknown;
+            }
+            if (batching_allowed) {
+                stream_impl->begin_batch(command_buffer, encoder,
+                                         StreamImpl::EncoderKind::kCompute, fences,
+                                         std::move(waits),
+                                         fences.empty() ? 0 : fences.front().signal_value);
+            }
+        }
+
+        [encoder setComputePipelineState:pipeline];
+        if (trap_status) {
+            auto* buffer = dynamic_cast<BufferImpl*>(trap_status.get());
+            [encoder setBuffer:buffer->handle() offset:0 atIndex:cumetal::abi::kTrapStatusBindingIndex];
+        }
+        mark_allocations_resident(encoder, backend);
+
+        for (const auto& resident : config.resident_buffers) {
+            if (resident == nullptr) continue;
+            auto* buffer_impl = dynamic_cast<BufferImpl*>(resident.get());
+            [encoder useResource:buffer_impl->handle()
+                         usage:(MTLResourceUsageRead | MTLResourceUsageWrite)];
+        }
+
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            const KernelArg& arg = args[i];
+            const std::size_t binding_index =
+                arg.binding_index == SIZE_MAX ? i : arg.binding_index;
+            if (binding_index > 30) {
+                if (error_message != nullptr) {
+                    *error_message = "kernel arg " + std::to_string(i) +
+                                     " has invalid Metal buffer index";
+                }
+                return cudaErrorInvalidValue;
+            }
+            if (arg.kind == KernelArg::Kind::kBuffer) {
+                if (arg.buffer == nullptr) {
+                    [encoder setBuffer:nil offset:0 atIndex:binding_index];
+                    continue;
+                }
+
+                auto* buffer_impl = dynamic_cast<BufferImpl*>(arg.buffer.get());
+                if (buffer_impl == nullptr) {
+                    if (error_message != nullptr) {
+                        *error_message = "kernel arg " + std::to_string(i) + " has unexpected buffer type";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+
+                [encoder setBuffer:buffer_impl->handle() offset:arg.offset atIndex:binding_index];
+            } else {
+                if (arg.bytes.empty()) {
+                    if (error_message != nullptr) {
+                        *error_message = "kernel arg " + std::to_string(i) + " has empty byte payload";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+                if (!bind_byte_argument(encoder, backend.device, arg.bytes, binding_index,
+                                        "kernel arg " + std::to_string(i), error_message)) {
+                    return cudaErrorInvalidValue;
+                }
+            }
+        }
+
+        if (lock_bank != nullptr) {
+            auto* bank_impl = dynamic_cast<BufferImpl*>(lock_bank.get());
+            if (bank_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "atomic lock bank has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            [encoder setBuffer:bank_impl->handle()
+                        offset:0
+                       atIndex:cumetal::ptx::kAtomicLockBankBindingIndex];
+        }
+        if (device_clock != nullptr) {
+            auto* clock_impl = dynamic_cast<BufferImpl*>(device_clock.get());
+            if (clock_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "device clock has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            [encoder setBuffer:clock_impl->handle()
+                        offset:0
+                       atIndex:cumetal::ptx::kDeviceClockBindingIndex];
+        }
+        if (grid_barrier != nullptr) {
+            auto* barrier_impl = dynamic_cast<BufferImpl*>(grid_barrier.get());
+            if (barrier_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "cooperative grid barrier has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            [encoder setBuffer:barrier_impl->handle()
+                        offset:0
+                       atIndex:cumetal::ptx::kGridBarrierBindingIndex];
+        }
+        if (needs_grid_y_offset) {
+            const std::uint32_t offset = config.grid_y_offset;
+            [encoder setBytes:&offset
+                       length:sizeof(offset)
+                      atIndex:cumetal::ptx::kGridYOffsetBindingIndex];
+        }
+
+        if (config.shared_memory_bytes > 0) {
+            [encoder setThreadgroupMemoryLength:config.shared_memory_bytes atIndex:0];
+        }
+
+        const MTLSize threadgroups = MTLSizeMake(config.grid.x, config.grid.y, config.grid.z);
+        const MTLSize threads_per_threadgroup =
+            MTLSizeMake(config.block.x, config.block.y, config.block.z);
+        [encoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threads_per_threadgroup];
+
+        if (batching_allowed) {
+            return cudaSuccess;
+        }
+
+        [encoder endEncoding];
+        encode_resource_signals(command_buffer, fences);
+
+        if (trace_async) {
+            const std::string trace_kernel = kernel_name;
+            const std::string trace_source = lowering_source;
+            const std::string trace_legacy_source =
+                legacy_source_for_provenance(lowering_source);
+            const std::string trace_semantic_quality =
+                config.semantic_quality.empty()
+                    ? semantic_quality_for_provenance(lowering_source)
+                    : config.semantic_quality;
+            const std::string trace_math_mode = math_mode;
+            NSString* trace_device_name = [[backend.device name] description];
+            const bool trace_cache_hit = compile_cache_hit;
+            const unsigned int grid_x = config.grid.x;
+            const unsigned int grid_y = config.grid.y;
+            const unsigned int grid_z = config.grid.z;
+            const unsigned int block_x = config.block.x;
+            const unsigned int block_y = config.block.y;
+            const unsigned int block_z = config.block.z;
+            [command_buffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+              @autoreleasepool {
+                const cudaError_t completion_status =
+                    check_launch_status(completed, trap_status, nullptr);
+                const double duration_seconds =
+                    [completed GPUEndTime] - [completed GPUStartTime];
+                const long long duration_ns =
+                    duration_seconds > 0.0
+                        ? static_cast<long long>(duration_seconds * 1000000000.0)
+                        : -1;
+                const char* device_name = [trace_device_name UTF8String];
+                std::fprintf(
+                    stderr,
+                    "CUMETAL_PROVENANCE event=kernel_launch kernel=\"%s\" "
+                    "source=%s provenance=%s semantic_quality=%s "
+                    "device=apple_gpu device_name=\"%s\" "
+                    "math_mode=%s compile_cache_hit=%s launch_success=%s duration_ns=%lld "
+                    "grid=(%u,%u,%u) block=(%u,%u,%u) unsupported_reason=\"\"\n",
+                    trace_kernel.c_str(),
+                    trace_legacy_source.c_str(),
+                    trace_source.c_str(),
+                    trace_semantic_quality.c_str(),
+                    device_name != nullptr ? device_name : "Apple Metal GPU",
+                    trace_math_mode.c_str(),
+                    trace_cache_hit ? "true" : "false",
+                    completion_status == cudaSuccess ? "true" : "false",
+                    duration_ns,
+                    grid_x,
+                    grid_y,
+                    grid_z,
+                    block_x,
+                    block_y,
+                    block_z);
+                std::fflush(stderr);
+              }
+            }];
+        }
+
+        [command_buffer commit];
+
+        if (stream_impl != nullptr) {
+            stream_impl->add_pending(command_buffer, trap_status);
+            return cudaSuccess;
+        }
+
+        [command_buffer waitUntilCompleted];
+        const cudaError_t completion_status =
+            check_launch_status(command_buffer, trap_status, error_message);
+        if (env_truthy(std::getenv("CUMETAL_TRACE_GPU"))) {
+            const char* device_name = [[[backend.device name] description] UTF8String];
+            const char* legacy_source =
+                legacy_source_for_provenance(lowering_source);
+            const std::string semantic_quality =
+                config.semantic_quality.empty()
+                    ? semantic_quality_for_provenance(lowering_source)
+                    : config.semantic_quality;
+            const double duration_seconds =
+                [command_buffer GPUEndTime] - [command_buffer GPUStartTime];
+            const long long duration_ns =
+                duration_seconds > 0.0
+                    ? static_cast<long long>(duration_seconds * 1000000000.0)
+                    : -1;
+            std::fprintf(stderr,
+                         "CUMETAL_PROVENANCE event=kernel_launch kernel=\"%s\" "
+                         "source=%s provenance=%s semantic_quality=%s "
+                         "device=apple_gpu device_name=\"%s\" "
+                         "math_mode=%s compile_cache_hit=%s launch_success=%s duration_ns=%lld "
+                         "grid=(%u,%u,%u) block=(%u,%u,%u) unsupported_reason=\"\"\n",
+                         kernel_name.c_str(),
+                         legacy_source,
+                         lowering_source.c_str(),
+                         semantic_quality.c_str(),
+                         device_name != nullptr ? device_name : "Apple Metal GPU",
+                         math_mode.c_str(),
+                         compile_cache_hit ? "true" : "false",
+                         completion_status == cudaSuccess ? "true" : "false",
+                         duration_ns,
+                         config.grid.x,
+                         config.grid.y,
+                         config.grid.z,
+                         config.block.x,
+                         config.block.y,
+                         config.block.z);
+            std::fflush(stderr);
+        }
+        return completion_status;
+    }
+
+    return cudaSuccess;
+}
+
+cudaError_t prepare_fft_r2c_3d_f32(const Fft3dR2CConfig& config,
+                                   const std::shared_ptr<Stream>& stream,
+                                   std::string* error_message) {
+    if (!ensure_initialized(error_message)) return cudaErrorInitializationError;
+    std::size_t real_span = 0;
+    std::size_t complex_span = 0;
+    if (!validate_fft_r2c_config(config, &real_span, &complex_span, error_message)) {
+        return cudaErrorInvalidValue;
+    }
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (stream != nullptr && stream_impl == nullptr) {
+        if (error_message != nullptr) *error_message = "VkFFT received an unknown stream";
+        return cudaErrorInvalidValue;
+    }
+    BackendState& backend = state();
+    id<MTLCommandQueue> queue = nil;
+    id<MTLDevice> device = nil;
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        if (stream_impl == nullptr) stream_impl = backend.default_stream;
+        queue = stream_impl != nullptr ? stream_impl->queue() : backend.queue;
+        device = backend.device;
+    }
+    if (queue == nil || device == nil) return cudaErrorInitializationError;
+
+    std::lock_guard<std::mutex> plan_lock(vkfft_mutex());
+    return get_or_create_vkfft_plan_locked(config, 0, 0, real_span, complex_span,
+                                           device, queue, error_message) != nullptr
+               ? cudaSuccess
+               : cudaErrorInvalidValue;
+}
+
+cudaError_t fft_r2c_3d_f32(const Fft3dR2CConfig& config,
+                           const std::shared_ptr<Buffer>& real_buffer,
+                           std::size_t real_offset,
+                           const std::shared_ptr<Buffer>& complex_buffer,
+                           std::size_t complex_offset,
+                           const std::shared_ptr<Stream>& stream,
+                           std::string* error_message) {
+    if (!ensure_initialized(error_message)) return cudaErrorInitializationError;
+    if (real_buffer == nullptr || complex_buffer == nullptr) {
+        if (error_message != nullptr) *error_message = "VkFFT requires real and complex buffers";
+        return cudaErrorInvalidValue;
+    }
+    std::size_t real_span = 0;
+    std::size_t complex_span = 0;
+    if (!validate_fft_r2c_config(config, &real_span, &complex_span, error_message)) {
+        return cudaErrorInvalidValue;
+    }
+    if (real_offset > real_buffer->length() ||
+        real_span > real_buffer->length() - real_offset ||
+        complex_offset > complex_buffer->length() ||
+        complex_span > complex_buffer->length() - complex_offset) {
+        if (error_message != nullptr) *error_message = "VkFFT layout exceeds buffer bounds";
+        return cudaErrorInvalidValue;
+    }
+
+    auto* real_impl = dynamic_cast<BufferImpl*>(real_buffer.get());
+    auto* complex_impl = dynamic_cast<BufferImpl*>(complex_buffer.get());
+    auto stream_impl = std::dynamic_pointer_cast<StreamImpl>(stream);
+    if (real_impl == nullptr || complex_impl == nullptr || (stream != nullptr && stream_impl == nullptr)) {
+        if (error_message != nullptr) *error_message = "VkFFT received an unknown backend object";
+        return cudaErrorInvalidValue;
+    }
+
+    BackendState& backend = state();
+    id<MTLCommandQueue> queue = nil;
+    id<MTLDevice> device = nil;
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        if (stream_impl == nullptr) stream_impl = backend.default_stream;
+        queue = stream_impl != nullptr ? stream_impl->queue() : backend.queue;
+        device = backend.device;
+    }
+    if (stream_impl == nullptr || queue == nil || device == nil) {
+        if (error_message != nullptr) *error_message = "VkFFT has no Metal stream";
+        return cudaErrorInitializationError;
+    }
+
+    std::unique_lock<std::mutex> plan_lock(vkfft_mutex());
+    VkFftPlan* plan = get_or_create_vkfft_plan_locked(
+        config, real_offset, complex_offset, real_span, complex_span,
+        device, queue, error_message);
+    if (plan == nullptr) return cudaErrorInvalidValue;
+
+    std::unique_lock<std::mutex> batch_lock(backend.batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(stream_impl->submission_mutex());
+    @autoreleasepool {
+        (void)stream_impl->flush_open_batch_locked();
+        flush_other_open_batches(stream_impl);
+
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) *error_message = "VkFFT failed to create command buffer";
+            return cudaErrorUnknown;
+        }
+        std::vector<ResourceFenceReservation> fences =
+            encode_submission_waits(command_buffer, stream_impl, {real_impl, complex_impl});
+        id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+        if (encoder == nil) {
+            if (error_message != nullptr) *error_message = "VkFFT failed to create compute encoder";
+            return cudaErrorUnknown;
+        }
+
+        MTL::Buffer* real_handle =
+            reinterpret_cast<MTL::Buffer*>((__bridge void*)real_impl->handle());
+        MTL::Buffer* complex_handle =
+            reinterpret_cast<MTL::Buffer*>((__bridge void*)complex_impl->handle());
+        VkFFTLaunchParams launch{};
+        launch.commandBuffer =
+            reinterpret_cast<MTL::CommandBuffer*>((__bridge void*)command_buffer);
+        launch.commandEncoder =
+            reinterpret_cast<MTL::ComputeCommandEncoder*>((__bridge void*)encoder);
+        launch.inputBuffer = &real_handle;
+        launch.buffer = &complex_handle;
+        launch.inputBufferOffset = real_offset;
+        launch.bufferOffset = complex_offset;
+
+        const VkFFTResult appended =
+            VkFFTAppend(&plan->application, config.inverse ? 1 : -1, &launch);
+        if (appended != VKFFT_SUCCESS) {
+            [encoder endEncoding];
+            encode_resource_signals(command_buffer, fences);
+            [command_buffer commit];
+            stream_impl->add_pending(command_buffer);
+            if (error_message != nullptr) {
+                *error_message = std::string("VkFFT dispatch failed: ") +
+                                 getVkFFTErrorString(appended);
+            }
+            return cudaErrorUnknown;
+        }
+        [encoder endEncoding];
+        encode_resource_signals(command_buffer, fences);
+        if (env_truthy(std::getenv("CUMETAL_TRACE_GPU"))) {
+            const bool inverse = config.inverse;
+            NSString* device_name = [[device name] description];
+            [command_buffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+              @autoreleasepool {
+                const double duration_seconds =
+                    [completed GPUEndTime] - [completed GPUStartTime];
+                const long long duration_ns =
+                    duration_seconds > 0.0
+                        ? static_cast<long long>(duration_seconds * 1000000000.0)
+                        : -1;
+                std::fprintf(stderr,
+                             "CUMETAL_PROVENANCE event=library_launch library=VkFFT "
+                             "operation=%s source=specialized_msl provenance=library_substitution "
+                             "semantic_quality=exact device=apple_gpu device_name=\"%s\" "
+                             "launch_success=%s duration_ns=%lld\n",
+                             inverse ? "c2r_3d_f32" : "r2c_3d_f32",
+                             [device_name UTF8String],
+                             check_command_buffer_status(completed, nullptr) == cudaSuccess
+                                 ? "true" : "false",
+                             duration_ns);
+                std::fflush(stderr);
+              }
+            }];
+        }
+        [command_buffer commit];
+        stream_impl->add_pending(command_buffer);
+    }
+    return cudaSuccess;
+}
+
+cudaError_t launch_kernel_timed(const std::string& metallib_path,
+                                const std::string& kernel_name,
+                                const LaunchConfig& config,
+                                const std::vector<KernelArg>& args,
+                                GpuTimingResult* out_timing,
+                                std::string* error_message) {
+    if (metallib_path.empty() || kernel_name.empty()) {
+        if (error_message != nullptr) {
+            *error_message = "launch_kernel_timed requires metallib path and kernel name";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (args.size() > 31) {
+        if (error_message != nullptr) {
+            *error_message = "kernel argument count exceeds Metal argument index limit (31)";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (config.grid.x == 0 || config.grid.y == 0 || config.grid.z == 0 || config.block.x == 0 ||
+        config.block.y == 0 || config.block.z == 0) {
+        if (error_message != nullptr) {
+            *error_message = "launch dimensions must be non-zero";
+        }
+        return cudaErrorInvalidValue;
+    }
+
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    BackendState& backend = state();
+    id<MTLComputePipelineState> pipeline = nil;
+    id<MTLCommandQueue> queue = nil;
+    bool needs_lock_bank = false;
+    bool needs_device_clock = false;
+    bool needs_grid_barrier = false;
+    bool needs_grid_y_offset = false;
+    std::shared_ptr<Buffer> lock_bank;
+    std::shared_ptr<Buffer> device_clock;
+    std::shared_ptr<Buffer> grid_barrier;
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        pipeline = load_pipeline_locked(backend, metallib_path, kernel_name, error_message);
+        if (pipeline == nil) {
+            return cudaErrorInvalidValue;
+        }
+        const std::string pipeline_cache_key = metallib_path + "::" + kernel_name;
+        if (backend.pipeline_uses_trap_status[pipeline_cache_key]) {
+            if (error_message) *error_message = "trap reporting unsupported on direct dispatch path";
+            return cudaErrorNotSupported;
+        }
+        needs_lock_bank = backend.pipeline_uses_lock_bank[pipeline_cache_key];
+        needs_device_clock = backend.pipeline_uses_device_clock[pipeline_cache_key];
+        needs_grid_barrier = backend.pipeline_uses_grid_barrier[pipeline_cache_key];
+        needs_grid_y_offset = backend.pipeline_uses_grid_y_offset[pipeline_cache_key];
+        queue = backend.queue;
+    }
+    if (needs_lock_bank &&
+        launch_arg_binds_index(args, cumetal::ptx::kAtomicLockBankBindingIndex)) {
+        needs_lock_bank = false;
+    }
+    if (needs_device_clock &&
+        launch_arg_binds_index(args, cumetal::ptx::kDeviceClockBindingIndex)) {
+        needs_device_clock = false;
+    }
+    if (needs_grid_barrier &&
+        launch_arg_binds_index(args, cumetal::ptx::kGridBarrierBindingIndex)) {
+        needs_grid_barrier = false;
+    }
+    if (needs_grid_y_offset &&
+        launch_arg_binds_index(args, cumetal::ptx::kGridYOffsetBindingIndex)) {
+        needs_grid_y_offset = false;
+    }
+    if (needs_lock_bank) {
+        lock_bank = ensure_atomic_lock_bank(error_message);
+        if (lock_bank == nullptr) {
+            return cudaErrorMemoryAllocation;
+        }
+    }
+    if (needs_device_clock) {
+        device_clock = ensure_device_clock(error_message);
+        if (device_clock == nullptr) {
+            return cudaErrorMemoryAllocation;
+        }
+    }
+    if (needs_grid_barrier) {
+        grid_barrier = allocate_grid_barrier(error_message);
+        if (grid_barrier == nullptr) {
+            return cudaErrorMemoryAllocation;
+        }
+    }
+    const std::shared_ptr<StreamImpl> default_stream =
+        std::dynamic_pointer_cast<StreamImpl>(legacy_default_stream());
+    std::unique_lock<std::mutex> batch_lock(state().batch_mutex);
+    std::unique_lock<std::mutex> submission_lock(default_stream->submission_mutex());
+
+    (void)default_stream->flush_open_batch_locked();
+    flush_other_open_batches(default_stream);
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> command_buffer = [queue commandBuffer];
+        if (command_buffer == nil) {
+            if (error_message != nullptr) {
+                *error_message = "launch_kernel_timed failed to create command buffer";
+            }
+            return cudaErrorUnknown;
+        }
+
+        std::vector<BufferImpl*> fence_buffers;
+        fence_buffers.reserve(args.size());
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            if (args[i].kind == KernelArg::Kind::kBytes) {
+
+                if (args[i].bytes.empty() || args[i].bytes.size() > 32764) {
+                    if (error_message != nullptr) {
+                        *error_message = "launch_kernel_timed arg " + std::to_string(i) +
+                                         " has invalid byte payload";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+                continue;
+            }
+            if (args[i].buffer == nullptr) {
+                continue;
+            }
+            auto* buffer_impl = dynamic_cast<BufferImpl*>(args[i].buffer.get());
+            if (buffer_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "launch_kernel_timed arg " + std::to_string(i) +
+                                     " has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            fence_buffers.push_back(buffer_impl);
+        }
+        const auto fences = encode_submission_waits(
+            command_buffer, std::shared_ptr<StreamImpl>{}, std::move(fence_buffers));
+
+        id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];
+        if (encoder == nil) {
+            if (error_message != nullptr) {
+                *error_message = "launch_kernel_timed failed to create compute encoder";
+            }
+            return cudaErrorUnknown;
+        }
+
+        [encoder setComputePipelineState:pipeline];
+        mark_allocations_resident(encoder, backend);
+
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            const KernelArg& arg = args[i];
+            const std::size_t binding_index =
+                arg.binding_index == SIZE_MAX ? i : arg.binding_index;
+            if (binding_index > 30) {
+                if (error_message != nullptr) {
+                    *error_message = "kernel arg " + std::to_string(i) +
+                                     " has invalid Metal buffer index";
+                }
+                return cudaErrorInvalidValue;
+            }
+            if (arg.kind == KernelArg::Kind::kBuffer) {
+                if (arg.buffer == nullptr) {
+                    [encoder setBuffer:nil offset:0 atIndex:binding_index];
+                    continue;
+                }
+                auto* buffer_impl = dynamic_cast<BufferImpl*>(arg.buffer.get());
+                if (buffer_impl == nullptr) {
+                    if (error_message != nullptr) {
+                        *error_message = "launch_kernel_timed arg " + std::to_string(i) +
+                                         " has unexpected buffer type";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+                [encoder setBuffer:buffer_impl->handle() offset:arg.offset atIndex:binding_index];
+            } else {
+                if (arg.bytes.empty()) {
+                    if (error_message != nullptr) {
+                        *error_message = "launch_kernel_timed arg " + std::to_string(i) +
+                                         " has empty byte payload";
+                    }
+                    return cudaErrorInvalidValue;
+                }
+                if (!bind_byte_argument(encoder, backend.device, arg.bytes, binding_index,
+                                        "launch_kernel_timed arg " + std::to_string(i),
+                                        error_message)) {
+                    return cudaErrorInvalidValue;
+                }
+            }
+        }
+
+        if (lock_bank != nullptr) {
+            auto* bank_impl = dynamic_cast<BufferImpl*>(lock_bank.get());
+            if (bank_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "atomic lock bank has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            [encoder setBuffer:bank_impl->handle()
+                        offset:0
+                       atIndex:cumetal::ptx::kAtomicLockBankBindingIndex];
+        }
+        if (device_clock != nullptr) {
+            auto* clock_impl = dynamic_cast<BufferImpl*>(device_clock.get());
+            if (clock_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "device clock has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            [encoder setBuffer:clock_impl->handle()
+                        offset:0
+                       atIndex:cumetal::ptx::kDeviceClockBindingIndex];
+        }
+        if (grid_barrier != nullptr) {
+            auto* barrier_impl = dynamic_cast<BufferImpl*>(grid_barrier.get());
+            if (barrier_impl == nullptr) {
+                if (error_message != nullptr) {
+                    *error_message = "cooperative grid barrier has unexpected buffer type";
+                }
+                return cudaErrorInvalidValue;
+            }
+            [encoder setBuffer:barrier_impl->handle()
+                        offset:0
+                       atIndex:cumetal::ptx::kGridBarrierBindingIndex];
+        }
+        if (needs_grid_y_offset) {
+            const std::uint32_t offset = config.grid_y_offset;
+            [encoder setBytes:&offset
+                       length:sizeof(offset)
+                      atIndex:cumetal::ptx::kGridYOffsetBindingIndex];
+        }
+
+        if (config.shared_memory_bytes > 0) {
+            [encoder setThreadgroupMemoryLength:config.shared_memory_bytes atIndex:0];
+        }
+
+        const MTLSize threadgroups = MTLSizeMake(config.grid.x, config.grid.y, config.grid.z);
+        const MTLSize threads_per_threadgroup =
+            MTLSizeMake(config.block.x, config.block.y, config.block.z);
+        [encoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threads_per_threadgroup];
+        [encoder endEncoding];
+        encode_resource_signals(command_buffer, fences);
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+
+        const cudaError_t status = check_command_buffer_status(command_buffer, error_message);
+        if (status == cudaSuccess && out_timing != nullptr) {
+            out_timing->gpu_start_s = [command_buffer GPUStartTime];
+            out_timing->gpu_end_s   = [command_buffer GPUEndTime];
+        }
+        return status;
+    }
+}
+
+cudaError_t synchronize(std::string* error_message) {
+    if (!ensure_initialized(error_message)) {
+        return cudaErrorInitializationError;
+    }
+
+    BackendState& backend = state();
+    std::vector<std::shared_ptr<StreamImpl>> streams;
+    {
+        std::lock_guard<std::mutex> lock(backend.mutex);
+        streams = collect_live_streams_locked(backend);
+        if (backend.default_stream != nullptr) {
+            streams.push_back(backend.default_stream);
+        }
+    }
+
+    for (const std::shared_ptr<StreamImpl>& stream : streams) {
+        const cudaError_t status = stream_synchronize(stream, error_message);
+        if (status != cudaSuccess) {
+            return status;
+        }
+    }
+
+    return cudaSuccess;
+}
+
+}

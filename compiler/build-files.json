@@ -1,0 +1,18 @@
+{
+  "CMakeLists.txt": {
+    "before": "906dad580f8210d6742159c9ab248361e1b9a4397e99df8de5b64b3dc8afd854",
+    "after": "a10b582cc403d86c1c9a07e2e4110dbf2c14fbbf8b4ec2351772b1d905853d34"
+  },
+  "tests/unit/CMakeLists.txt": {
+    "before": "affc38c7fd51eefb5c74eef5130de29475b1dfc05280e5eb94e47749497bd441",
+    "after": "d3a58e552e2a0586507271fcc8fee66d8b498d3f5eb02f3441dfa590614a61cd"
+  },
+  "tests/functional/CMakeLists.txt": {
+    "before": "3c6e093af07a6f247ac84203a6abff93661eb2a426f12ca0eb9b6afcad9eb08d",
+    "after": "4ae4503ef0b492e06025b98589c8d04b2337b5a08b244695ed29ed09a0de412f"
+  },
+  "scripts/build_llama_cpp_cumetal.sh": {
+    "before": "06914b0b4dfdda8b877c4b2743d62b891b3909d71c3e1fc22dfd0f1acc7abeea",
+    "after": "bbbba35c6fa16e62c4e31acfdf2f9fe9cbd8a926c901136907fe2879efeaf259"
+  }
+}

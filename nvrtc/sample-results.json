@@ -1,0 +1,39 @@
+{
+  "fixed-tool": {
+    "exit": 0,
+    "program": "d6b0fce7ede8d91c70f449bfe7c0c21a546ee1f496741cb9f48a4f74d8ae635f",
+    "source": "fe190d34eb7f7675d64c3a8589af4a44bc4398aa5a7d616b8d01370f28f8a745",
+    "shim": "a711b1fa039c4274a450b053f42d38bc8529f1ff7b265500807f96174e59b588",
+    "nvrtc": "64db9c3fc128f4a57a22c314fda08831a8e3a725d439a70076a0fb98f7bea1b7",
+    "cumetal": "de9858ee4ff40b03d364d2f6f914e3a51eb8516659b6cdddb061b63363c3ee3d",
+    "compiler": "8ac71e2c0ac35c8d35d3db41d89aa9cdb757f78f2f79dd7525f68bda375e8bf6",
+    "gpu_evidence": [
+      "CUMETAL_PROVENANCE event=kernel_launch kernel=\"vectorAdd\" source=generic_ptx provenance=generic_ptx_lowering semantic_quality=exact device=apple_gpu device_name=\"Apple M2\" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=16125 grid=(196,1,1) block=(256,1,1) unsupported_reason=\"\""
+    ],
+    "passed": true
+  },
+  "no-companion": {
+    "exit": 1,
+    "program": "d6b0fce7ede8d91c70f449bfe7c0c21a546ee1f496741cb9f48a4f74d8ae635f",
+    "source": "fe190d34eb7f7675d64c3a8589af4a44bc4398aa5a7d616b8d01370f28f8a745",
+    "shim": "a711b1fa039c4274a450b053f42d38bc8529f1ff7b265500807f96174e59b588",
+    "nvrtc": "64db9c3fc128f4a57a22c314fda08831a8e3a725d439a70076a0fb98f7bea1b7",
+    "cumetal": "42ce0c2c929f55382a6bb684b33fff554b563eb81fb4f11155fc00917007d227",
+    "compiler": "dbd27bf3819f013f6791dd117c849785dca039734bfc001c46424fb67629de54",
+    "gpu_evidence": [],
+    "passed": false
+  },
+  "fixed-holdout": {
+    "exit": 0,
+    "program": "d6b0fce7ede8d91c70f449bfe7c0c21a546ee1f496741cb9f48a4f74d8ae635f",
+    "source": "fe190d34eb7f7675d64c3a8589af4a44bc4398aa5a7d616b8d01370f28f8a745",
+    "shim": "a711b1fa039c4274a450b053f42d38bc8529f1ff7b265500807f96174e59b588",
+    "nvrtc": "64db9c3fc128f4a57a22c314fda08831a8e3a725d439a70076a0fb98f7bea1b7",
+    "cumetal": "de9858ee4ff40b03d364d2f6f914e3a51eb8516659b6cdddb061b63363c3ee3d",
+    "compiler": "8ac71e2c0ac35c8d35d3db41d89aa9cdb757f78f2f79dd7525f68bda375e8bf6",
+    "gpu_evidence": [
+      "CUMETAL_PROVENANCE event=kernel_launch kernel=\"_Z37crossentropy_softmax_backward_kernel1PfPKfS1_PKiiii\" source=generic_ptx provenance=generic_ptx_lowering semantic_quality=exact device=apple_gpu device_name=\"Apple M2\" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=9874 grid=(2,1,1) block=(32,1,1) unsupported_reason=\"\""
+    ],
+    "passed": true
+  }
+}

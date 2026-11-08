@@ -1,0 +1,59 @@
+{
+  "device": "Apple M2",
+  "stage": "Original GPT-2 124M output/vocabulary projection from llm.c, FP32, B=2 T=64, no bias",
+  "operation": "A[128,768] times transpose(W[50304,768])",
+  "source": "train_gpt2_fp32.cu, matmul_forward_kernel4",
+  "scope": "Isolated GPU command-buffer execution times in ms. Same A and W buffers across paths, separate equally sized output buffers, deterministic uniform synthetic data already resident. Apple MPSMatrixMultiplication Float32, transposeRight=YES, alpha=1, beta=0. Generic CuMetal shader from original training compiled with MTLMathModeSafe. Standalone Metal encoder uses original grid 1 \u00d7 393 and threadgroup 16 \u00d7 16; excludes framework dispatch / CPU time from GPU numbers. Separate host time available in raw.csv. No change to the project.",
+  "samples": "3 warmups and 12 paired iterations per path; order alternates per pair; one process.",
+  "warm_gpu_ms": {
+    "translated": {
+      "median": 24.10435415,
+      "min": 23.5280417,
+      "max": 24.6289167
+    },
+    "mps": {
+      "median": 12.453,
+      "min": 12.048375,
+      "max": 12.9855833
+    }
+  },
+  "translated_over_mps": 1.9356262868385128,
+  "warm_wall_ms": {
+    "translated": {
+      "median": 24.602333,
+      "min": 23.762542,
+      "max": 24.891875
+    },
+    "mps": {
+      "median": 12.712708,
+      "min": 12.297625,
+      "max": 13.864417
+    }
+  },
+  "validation": {
+    "elements": 6438912,
+    "nonfinite_or_out_of_tolerance": 0,
+    "max_abs_diff": 3.81469727e-05,
+    "rms_diff": 2.86088602e-06,
+    "atol": 0.0003,
+    "rtol": 2e-05,
+    "cpu_fp64_spot_checks": 128,
+    "cpu_fp64_max_abs_diff_translated": 2.41928113e-05,
+    "cpu_fp64_max_abs_diff_MPS": 1.90218559e-05
+  },
+  "full_training_trace_same_shape_ms": [
+    23.594708,
+    24.468416,
+    25.035708,
+    24.917624,
+    24.720416
+  ],
+  "raw_csv_schema": [
+    "row",
+    "pair (negative rows are warmup)",
+    "order: 0 or 1",
+    "path",
+    "gpu_ms",
+    "host_wall_ms"
+  ]
+}

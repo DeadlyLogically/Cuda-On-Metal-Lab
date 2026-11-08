@@ -1,0 +1,11 @@
+# Private runtime interface
+
+The private export table profile targets NVIDIA’s unmodified Linux SBSA `libcudart.so.13.0.96` from CUDA 13.0.2. Its SHA-256 is `7bdba2b5b08cbdc85203c41cc94598adedb1bcfea7cb574ca693ac73599e4e63`. Offsets below are ARM64 static virtual addresses in that file, as inspected with REA and disassembly.
+
+- `cudaMalloc` at `0x50550` enters a guard that initializes the CUDA driver. At `0x3a2d8` the runtime loads `libcuda.so.1`, then negotiates driver entry points. At `0x3a338` it checks for version 13000 or newer.
+- The code at `0x3a390` and `0x3a3a4` requests the runtime driver interface and profiler callback tables. Slot 2 in the first table supplies the primary context. The inactive profiler path uses two buffers with 1,024 and 14 elements.
+- At `0x3d928` the runtime enumerates the device and inspects its attributes. It also requests tables for thread-local and context-local state. The guest driver exposes the single primary context used by both the runtime and the explicit kernel launch.
+- At `0x3fae0` through `0x3fb08` the runtime asks for a compatibility digest. It then compares the digest to its own at `0x3fe0c` through `0x3fe4c`. The profile uses process and thread identifiers, callback addresses, the supplied timestamp, driver version, and device identifiers. The primitive uses the numeric constants specified by RFC 1319.
+- During the controlled run, the original library accepted the private table profile and completed the memory operations. The probe itself supplied the PTX for the later addition. [Recorded runtime run](../evidence/runtime/result.json)
+
+The implementation draws on ZLUDA’s published interface and algorithm, along with observations of the pinned Linux binary. The profile supports the table slots exercised by this run. Unknown table IDs return an unsupported status. [ZLUDA table declarations](https://github.com/vosen/ZLUDA/blob/f4df215edbc3b6698a1c61ef7a8688fdff3872be/dark_api/src/lib.rs) · [ZLUDA driver implementation](https://github.com/vosen/ZLUDA/blob/f4df215edbc3b6698a1c61ef7a8688fdff3872be/zluda/src/impl/driver.rs) · [RFC 1319](https://www.rfc-editor.org/rfc/rfc1319) · [CUDA entry point contract](https://docs.nvidia.com/cuda/archive/13.0.2/cuda-driver-api/group__CUDA__DRIVER__ENTRY__POINT.html)

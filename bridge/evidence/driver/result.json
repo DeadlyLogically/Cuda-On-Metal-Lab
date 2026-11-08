@@ -1,0 +1,40 @@
+{
+  "mode": "driver",
+  "experimental_private_tables": false,
+  "guest_exit": 0,
+  "error": null,
+  "passed": true,
+  "checks": {
+    "matched_host_requests": true,
+    "exact_gpu_dispatch": true,
+    "linux_verified_result": true,
+    "successful_launch": true,
+    "synchronized": true,
+    "correct_readback": true
+  },
+  "commands": [
+    "INIT",
+    "ALLOC",
+    "ALLOC",
+    "ALLOC",
+    "H2D",
+    "H2D",
+    "LOAD",
+    "GET",
+    "LAUNCH",
+    "SYNC",
+    "UNLOAD",
+    "D2H",
+    "FREE",
+    "FREE",
+    "FREE"
+  ],
+  "generic_gpu_launches": 1,
+  "gpu_provenance": [
+    "CUMETAL_PROVENANCE event=kernel_launch kernel=\"bridge_add\" source=generic_ptx provenance=generic_ptx_lowering semantic_quality=exact device=apple_gpu device_name=\"Apple M2\" math_mode=safe compile_cache_hit=false launch_success=true duration_ns=7249 grid=(1,1,1) block=(3,1,1) unsupported_reason=\"\""
+  ],
+  "libcudart_sha256": "7bdba2b5b08cbdc85203c41cc94598adedb1bcfea7cb574ca693ac73599e4e63",
+  "original_preserved": true,
+  "host_cumetal_sha256": "42ce0c2c929f55382a6bb684b33fff554b563eb81fb4f11155fc00917007d227",
+  "image": "cumetal-bridge-lab:bookworm"
+}

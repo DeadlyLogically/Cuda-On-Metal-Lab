@@ -1,0 +1,175 @@
+{
+  "protocol": "alternating within each pair, separate processes; 5 warmups, 51 one-launch measurements; 9 interleaved trials x 16 for scheduling, full output+guard check",
+  "order": [
+    [
+      "A",
+      "B"
+    ],
+    [
+      "B",
+      "A"
+    ],
+    [
+      "A",
+      "B"
+    ],
+    [
+      "B",
+      "A"
+    ],
+    [
+      "A",
+      "B"
+    ],
+    [
+      "B",
+      "A"
+    ]
+  ],
+  "runs": [
+    {
+      "pair": 0,
+      "name": "A",
+      "src": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 176.0,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 25.068,
+      "cpu_queue": 6.891,
+      "serial": 221.784
+    },
+    {
+      "pair": 0,
+      "name": "B",
+      "src": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 187.125,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 20.664,
+      "cpu_queue": 4.044,
+      "serial": 197.667
+    },
+    {
+      "pair": 1,
+      "name": "B",
+      "src": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 225.375,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 26.594,
+      "cpu_queue": 4.263,
+      "serial": 240.62
+    },
+    {
+      "pair": 1,
+      "name": "A",
+      "src": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 250.417,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 26.326,
+      "cpu_queue": 6.651,
+      "serial": 218.654
+    },
+    {
+      "pair": 2,
+      "name": "A",
+      "src": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 177.292,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 24.482,
+      "cpu_queue": 6.794,
+      "serial": 269.609
+    },
+    {
+      "pair": 2,
+      "name": "B",
+      "src": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 226.042,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 22.698,
+      "cpu_queue": 4.315,
+      "serial": 196.245
+    },
+    {
+      "pair": 3,
+      "name": "B",
+      "src": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 178.0,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 23.289,
+      "cpu_queue": 3.878,
+      "serial": 233.219
+    },
+    {
+      "pair": 3,
+      "name": "A",
+      "src": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 181.542,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 28.432,
+      "cpu_queue": 9.885,
+      "serial": 316.693
+    },
+    {
+      "pair": 4,
+      "name": "A",
+      "src": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 257.458,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 28.081,
+      "cpu_queue": 6.904,
+      "serial": 191.331
+    },
+    {
+      "pair": 4,
+      "name": "B",
+      "src": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 236.709,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 21.677,
+      "cpu_queue": 3.661,
+      "serial": 270.122
+    },
+    {
+      "pair": 5,
+      "name": "B",
+      "src": "cbc889695046b735dab45bfed114330905bc59b59186d751bc6401700077b04d",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 183.875,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 22.289,
+      "cpu_queue": 4.229,
+      "serial": 196.247
+    },
+    {
+      "pair": 5,
+      "name": "A",
+      "src": "d6448b7018c2125d3b3434017cf207b84c83743b0780618b0b44bd705f8abc94",
+      "cubin": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+      "one": 170.458,
+      "single_hash": "6c90d09e31d89f36d68bb436404c8342daf0219002e488fdb88cdfaba632e766",
+      "batch_hash": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "queue": 24.422,
+      "cpu_queue": 6.948,
+      "serial": 212.424
+    }
+  ]
+}

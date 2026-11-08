@@ -1,0 +1,684 @@
+{
+  "hardware": "Tesla T4, 7.5, 580.82.07",
+  "cubin_sha256": "6e5eb269de727a5806cc4f77c2ba394e0b4e6af53f6f6400a7612121f18920e7",
+  "cases": [
+    {
+      "n": 32,
+      "batch": 1,
+      "digest": "c20398d2aa07351e880fa8c46e837924123b344ae93811512f3266fdcabe1029",
+      "raw": {
+        "serialized": [
+          {
+            "wall_us_per_op": 13.375,
+            "launch_us_per_op": 7.012,
+            "wait_us_per_op": 5.668
+          },
+          {
+            "wall_us_per_op": 12.396,
+            "launch_us_per_op": 6.05,
+            "wait_us_per_op": 5.869
+          },
+          {
+            "wall_us_per_op": 12.456,
+            "launch_us_per_op": 6.191,
+            "wait_us_per_op": 5.868
+          },
+          {
+            "wall_us_per_op": 11.984,
+            "launch_us_per_op": 5.688,
+            "wait_us_per_op": 5.934
+          },
+          {
+            "wall_us_per_op": 12.079,
+            "launch_us_per_op": 5.691,
+            "wait_us_per_op": 6.031
+          },
+          {
+            "wall_us_per_op": 11.939,
+            "launch_us_per_op": 5.649,
+            "wait_us_per_op": 5.894
+          },
+          {
+            "wall_us_per_op": 12.381,
+            "launch_us_per_op": 5.983,
+            "wait_us_per_op": 5.986
+          },
+          {
+            "wall_us_per_op": 11.952,
+            "launch_us_per_op": 5.635,
+            "wait_us_per_op": 5.932
+          },
+          {
+            "wall_us_per_op": 12.037,
+            "launch_us_per_op": 5.617,
+            "wait_us_per_op": 6.058
+          }
+        ],
+        "queued": [
+          {
+            "wall_us_per_op": 13.227,
+            "launch_us_per_op": 6.881,
+            "wait_us_per_op": 5.776
+          },
+          {
+            "wall_us_per_op": 20.049,
+            "launch_us_per_op": 10.016,
+            "wait_us_per_op": 5.746
+          },
+          {
+            "wall_us_per_op": 12.63,
+            "launch_us_per_op": 6.146,
+            "wait_us_per_op": 6.103
+          },
+          {
+            "wall_us_per_op": 12.37,
+            "launch_us_per_op": 6.151,
+            "wait_us_per_op": 5.803
+          },
+          {
+            "wall_us_per_op": 12.845,
+            "launch_us_per_op": 6.468,
+            "wait_us_per_op": 5.959
+          },
+          {
+            "wall_us_per_op": 12.025,
+            "launch_us_per_op": 5.708,
+            "wait_us_per_op": 5.929
+          },
+          {
+            "wall_us_per_op": 11.9,
+            "launch_us_per_op": 5.59,
+            "wait_us_per_op": 5.938
+          },
+          {
+            "wall_us_per_op": 12.379,
+            "launch_us_per_op": 6.027,
+            "wait_us_per_op": 5.966
+          },
+          {
+            "wall_us_per_op": 12.325,
+            "launch_us_per_op": 5.92,
+            "wait_us_per_op": 6.035
+          }
+        ]
+      },
+      "median": {
+        "serialized": {
+          "wall_us_per_op": 12.079,
+          "launch_us_per_op": 5.691,
+          "wait_us_per_op": 5.932
+        },
+        "queued": {
+          "wall_us_per_op": 12.379,
+          "launch_us_per_op": 6.146,
+          "wait_us_per_op": 5.938
+        }
+      }
+    },
+    {
+      "n": 32,
+      "batch": 16,
+      "digest": "021dfe7b2d96e228dfe501a352f372d678b9a7672e8b9b12227fbf63bbc6df1b",
+      "raw": {
+        "serialized": [
+          {
+            "wall_us_per_op": 12.859,
+            "launch_us_per_op": 6.438,
+            "wait_us_per_op": 6.223
+          },
+          {
+            "wall_us_per_op": 12.138,
+            "launch_us_per_op": 5.451,
+            "wait_us_per_op": 6.474
+          },
+          {
+            "wall_us_per_op": 11.343,
+            "launch_us_per_op": 5.211,
+            "wait_us_per_op": 5.947
+          },
+          {
+            "wall_us_per_op": 11.498,
+            "launch_us_per_op": 5.347,
+            "wait_us_per_op": 5.967
+          },
+          {
+            "wall_us_per_op": 11.652,
+            "launch_us_per_op": 5.504,
+            "wait_us_per_op": 5.946
+          },
+          {
+            "wall_us_per_op": 11.316,
+            "launch_us_per_op": 5.192,
+            "wait_us_per_op": 5.937
+          },
+          {
+            "wall_us_per_op": 11.878,
+            "launch_us_per_op": 5.782,
+            "wait_us_per_op": 5.907
+          },
+          {
+            "wall_us_per_op": 11.406,
+            "launch_us_per_op": 5.332,
+            "wait_us_per_op": 5.893
+          },
+          {
+            "wall_us_per_op": 13.619,
+            "launch_us_per_op": 7.514,
+            "wait_us_per_op": 5.921
+          }
+        ],
+        "queued": [
+          {
+            "wall_us_per_op": 6.194,
+            "launch_us_per_op": 5.534,
+            "wait_us_per_op": 0.374
+          },
+          {
+            "wall_us_per_op": 9.263,
+            "launch_us_per_op": 8.598,
+            "wait_us_per_op": 0.37
+          },
+          {
+            "wall_us_per_op": 5.838,
+            "launch_us_per_op": 5.193,
+            "wait_us_per_op": 0.387
+          },
+          {
+            "wall_us_per_op": 6.117,
+            "launch_us_per_op": 5.473,
+            "wait_us_per_op": 0.382
+          },
+          {
+            "wall_us_per_op": 5.955,
+            "launch_us_per_op": 5.309,
+            "wait_us_per_op": 0.376
+          },
+          {
+            "wall_us_per_op": 5.952,
+            "launch_us_per_op": 5.318,
+            "wait_us_per_op": 0.369
+          },
+          {
+            "wall_us_per_op": 6.439,
+            "launch_us_per_op": 5.813,
+            "wait_us_per_op": 0.372
+          },
+          {
+            "wall_us_per_op": 5.873,
+            "launch_us_per_op": 5.224,
+            "wait_us_per_op": 0.377
+          },
+          {
+            "wall_us_per_op": 6.754,
+            "launch_us_per_op": 6.106,
+            "wait_us_per_op": 0.38
+          }
+        ]
+      },
+      "median": {
+        "serialized": {
+          "wall_us_per_op": 11.652,
+          "launch_us_per_op": 5.451,
+          "wait_us_per_op": 5.946
+        },
+        "queued": {
+          "wall_us_per_op": 6.117,
+          "launch_us_per_op": 5.473,
+          "wait_us_per_op": 0.376
+        }
+      }
+    },
+    {
+      "n": 50000,
+      "batch": 1,
+      "digest": "f2c68070cbc41ddc696cfb40fdf1ff07372ac9dc83a964966cc466432ccf60a0",
+      "raw": {
+        "serialized": [
+          {
+            "wall_us_per_op": 19.024,
+            "launch_us_per_op": 10.662,
+            "wait_us_per_op": 7.62
+          },
+          {
+            "wall_us_per_op": 16.525,
+            "launch_us_per_op": 9.019,
+            "wait_us_per_op": 6.737
+          },
+          {
+            "wall_us_per_op": 16.072,
+            "launch_us_per_op": 8.385,
+            "wait_us_per_op": 6.975
+          },
+          {
+            "wall_us_per_op": 16.648,
+            "launch_us_per_op": 8.574,
+            "wait_us_per_op": 7.274
+          },
+          {
+            "wall_us_per_op": 18.188,
+            "launch_us_per_op": 10.142,
+            "wait_us_per_op": 7.092
+          },
+          {
+            "wall_us_per_op": 60.313,
+            "launch_us_per_op": 53.652,
+            "wait_us_per_op": 5.993
+          },
+          {
+            "wall_us_per_op": 17.085,
+            "launch_us_per_op": 9.167,
+            "wait_us_per_op": 7.092
+          },
+          {
+            "wall_us_per_op": 18.602,
+            "launch_us_per_op": 10.4,
+            "wait_us_per_op": 7.186
+          },
+          {
+            "wall_us_per_op": 16.021,
+            "launch_us_per_op": 8.412,
+            "wait_us_per_op": 6.879
+          }
+        ],
+        "queued": [
+          {
+            "wall_us_per_op": 21.269,
+            "launch_us_per_op": 13.364,
+            "wait_us_per_op": 6.757
+          },
+          {
+            "wall_us_per_op": 17.712,
+            "launch_us_per_op": 9.177,
+            "wait_us_per_op": 7.74
+          },
+          {
+            "wall_us_per_op": 18.237,
+            "launch_us_per_op": 10.323,
+            "wait_us_per_op": 6.738
+          },
+          {
+            "wall_us_per_op": 15.9,
+            "launch_us_per_op": 7.989,
+            "wait_us_per_op": 7.285
+          },
+          {
+            "wall_us_per_op": 16.686,
+            "launch_us_per_op": 8.775,
+            "wait_us_per_op": 7.279
+          },
+          {
+            "wall_us_per_op": 24.422,
+            "launch_us_per_op": 8.66,
+            "wait_us_per_op": 15.08
+          },
+          {
+            "wall_us_per_op": 16.325,
+            "launch_us_per_op": 8.47,
+            "wait_us_per_op": 7.174
+          },
+          {
+            "wall_us_per_op": 16.454,
+            "launch_us_per_op": 8.558,
+            "wait_us_per_op": 7.195
+          },
+          {
+            "wall_us_per_op": 16.862,
+            "launch_us_per_op": 9.285,
+            "wait_us_per_op": 6.88
+          }
+        ]
+      },
+      "median": {
+        "serialized": {
+          "wall_us_per_op": 17.085,
+          "launch_us_per_op": 9.167,
+          "wait_us_per_op": 7.092
+        },
+        "queued": {
+          "wall_us_per_op": 16.862,
+          "launch_us_per_op": 8.775,
+          "wait_us_per_op": 7.195
+        }
+      }
+    },
+    {
+      "n": 50000,
+      "batch": 16,
+      "digest": "f3c8c88a7710487323e02f87f043667d595cb1d18d1caa7fe8b892e37ed8c947",
+      "raw": {
+        "serialized": [
+          {
+            "wall_us_per_op": 13.454,
+            "launch_us_per_op": 6.175,
+            "wait_us_per_op": 7.06
+          },
+          {
+            "wall_us_per_op": 12.787,
+            "launch_us_per_op": 5.496,
+            "wait_us_per_op": 7.074
+          },
+          {
+            "wall_us_per_op": 13.49,
+            "launch_us_per_op": 6.225,
+            "wait_us_per_op": 7.057
+          },
+          {
+            "wall_us_per_op": 13.022,
+            "launch_us_per_op": 5.587,
+            "wait_us_per_op": 7.194
+          },
+          {
+            "wall_us_per_op": 12.767,
+            "launch_us_per_op": 5.492,
+            "wait_us_per_op": 7.067
+          },
+          {
+            "wall_us_per_op": 13.33,
+            "launch_us_per_op": 6.082,
+            "wait_us_per_op": 7.038
+          },
+          {
+            "wall_us_per_op": 14.26,
+            "launch_us_per_op": 6.199,
+            "wait_us_per_op": 7.596
+          },
+          {
+            "wall_us_per_op": 13.062,
+            "launch_us_per_op": 5.778,
+            "wait_us_per_op": 7.05
+          },
+          {
+            "wall_us_per_op": 13.08,
+            "launch_us_per_op": 5.63,
+            "wait_us_per_op": 7.221
+          }
+        ],
+        "queued": [
+          {
+            "wall_us_per_op": 6.402,
+            "launch_us_per_op": 5.635,
+            "wait_us_per_op": 0.437
+          },
+          {
+            "wall_us_per_op": 6.231,
+            "launch_us_per_op": 5.473,
+            "wait_us_per_op": 0.443
+          },
+          {
+            "wall_us_per_op": 6.522,
+            "launch_us_per_op": 5.707,
+            "wait_us_per_op": 0.445
+          },
+          {
+            "wall_us_per_op": 6.291,
+            "launch_us_per_op": 5.539,
+            "wait_us_per_op": 0.455
+          },
+          {
+            "wall_us_per_op": 6.395,
+            "launch_us_per_op": 5.6,
+            "wait_us_per_op": 0.442
+          },
+          {
+            "wall_us_per_op": 6.313,
+            "launch_us_per_op": 5.577,
+            "wait_us_per_op": 0.433
+          },
+          {
+            "wall_us_per_op": 6.46,
+            "launch_us_per_op": 5.621,
+            "wait_us_per_op": 0.457
+          },
+          {
+            "wall_us_per_op": 6.832,
+            "launch_us_per_op": 6.043,
+            "wait_us_per_op": 0.45
+          },
+          {
+            "wall_us_per_op": 6.147,
+            "launch_us_per_op": 5.396,
+            "wait_us_per_op": 0.438
+          }
+        ]
+      },
+      "median": {
+        "serialized": {
+          "wall_us_per_op": 13.08,
+          "launch_us_per_op": 5.778,
+          "wait_us_per_op": 7.067
+        },
+        "queued": {
+          "wall_us_per_op": 6.395,
+          "launch_us_per_op": 5.6,
+          "wait_us_per_op": 0.443
+        }
+      }
+    },
+    {
+      "n": 524288,
+      "batch": 1,
+      "digest": "62a85cc60257ac535441ea87312df4de8a29bc760fd83e5d82ccddc8a26a600c",
+      "raw": {
+        "serialized": [
+          {
+            "wall_us_per_op": 43.633,
+            "launch_us_per_op": 19.324,
+            "wait_us_per_op": 22.696
+          },
+          {
+            "wall_us_per_op": 41.519,
+            "launch_us_per_op": 16.772,
+            "wait_us_per_op": 23.402
+          },
+          {
+            "wall_us_per_op": 40.253,
+            "launch_us_per_op": 16.228,
+            "wait_us_per_op": 22.687
+          },
+          {
+            "wall_us_per_op": 39.864,
+            "launch_us_per_op": 15.885,
+            "wait_us_per_op": 22.817
+          },
+          {
+            "wall_us_per_op": 73.526,
+            "launch_us_per_op": 49.61,
+            "wait_us_per_op": 22.437
+          },
+          {
+            "wall_us_per_op": 48.981,
+            "launch_us_per_op": 24.37,
+            "wait_us_per_op": 22.552
+          },
+          {
+            "wall_us_per_op": 44.007,
+            "launch_us_per_op": 19.206,
+            "wait_us_per_op": 22.815
+          },
+          {
+            "wall_us_per_op": 73.686,
+            "launch_us_per_op": 14.351,
+            "wait_us_per_op": 57.559
+          },
+          {
+            "wall_us_per_op": 39.532,
+            "launch_us_per_op": 15.255,
+            "wait_us_per_op": 22.901
+          }
+        ],
+        "queued": [
+          {
+            "wall_us_per_op": 41.853,
+            "launch_us_per_op": 17.802,
+            "wait_us_per_op": 22.526
+          },
+          {
+            "wall_us_per_op": 39.017,
+            "launch_us_per_op": 14.788,
+            "wait_us_per_op": 22.717
+          },
+          {
+            "wall_us_per_op": 42.431,
+            "launch_us_per_op": 17.982,
+            "wait_us_per_op": 22.823
+          },
+          {
+            "wall_us_per_op": 41.227,
+            "launch_us_per_op": 16.708,
+            "wait_us_per_op": 22.933
+          },
+          {
+            "wall_us_per_op": 40.783,
+            "launch_us_per_op": 15.954,
+            "wait_us_per_op": 23.329
+          },
+          {
+            "wall_us_per_op": 40.408,
+            "launch_us_per_op": 15.651,
+            "wait_us_per_op": 23.183
+          },
+          {
+            "wall_us_per_op": 42.023,
+            "launch_us_per_op": 17.407,
+            "wait_us_per_op": 22.755
+          },
+          {
+            "wall_us_per_op": 41.981,
+            "launch_us_per_op": 17.334,
+            "wait_us_per_op": 23.114
+          },
+          {
+            "wall_us_per_op": 44.438,
+            "launch_us_per_op": 20.179,
+            "wait_us_per_op": 22.831
+          }
+        ]
+      },
+      "median": {
+        "serialized": {
+          "wall_us_per_op": 43.633,
+          "launch_us_per_op": 16.772,
+          "wait_us_per_op": 22.815
+        },
+        "queued": {
+          "wall_us_per_op": 41.853,
+          "launch_us_per_op": 17.334,
+          "wait_us_per_op": 22.831
+        }
+      }
+    },
+    {
+      "n": 524288,
+      "batch": 16,
+      "digest": "52829fb7387177b8b45c6774b5f0fc81f7c43962a32b2e0ffa8e0cda1b3f86e8",
+      "raw": {
+        "serialized": [
+          {
+            "wall_us_per_op": 35.897,
+            "launch_us_per_op": 6.18,
+            "wait_us_per_op": 29.46
+          },
+          {
+            "wall_us_per_op": 35.533,
+            "launch_us_per_op": 6.019,
+            "wait_us_per_op": 29.271
+          },
+          {
+            "wall_us_per_op": 35.431,
+            "launch_us_per_op": 6.05,
+            "wait_us_per_op": 29.128
+          },
+          {
+            "wall_us_per_op": 35.264,
+            "launch_us_per_op": 5.88,
+            "wait_us_per_op": 29.123
+          },
+          {
+            "wall_us_per_op": 35.411,
+            "launch_us_per_op": 5.941,
+            "wait_us_per_op": 29.222
+          },
+          {
+            "wall_us_per_op": 37.797,
+            "launch_us_per_op": 8.647,
+            "wait_us_per_op": 28.881
+          },
+          {
+            "wall_us_per_op": 37.225,
+            "launch_us_per_op": 6.722,
+            "wait_us_per_op": 30.223
+          },
+          {
+            "wall_us_per_op": 35.846,
+            "launch_us_per_op": 8.148,
+            "wait_us_per_op": 27.435
+          },
+          {
+            "wall_us_per_op": 38.863,
+            "launch_us_per_op": 6.992,
+            "wait_us_per_op": 31.579
+          }
+        ],
+        "queued": [
+          {
+            "wall_us_per_op": 27.469,
+            "launch_us_per_op": 6.09,
+            "wait_us_per_op": 20.991
+          },
+          {
+            "wall_us_per_op": 27.361,
+            "launch_us_per_op": 5.895,
+            "wait_us_per_op": 21.089
+          },
+          {
+            "wall_us_per_op": 27.306,
+            "launch_us_per_op": 5.842,
+            "wait_us_per_op": 21.088
+          },
+          {
+            "wall_us_per_op": 27.303,
+            "launch_us_per_op": 8.398,
+            "wait_us_per_op": 18.46
+          },
+          {
+            "wall_us_per_op": 27.264,
+            "launch_us_per_op": 5.861,
+            "wait_us_per_op": 21.018
+          },
+          {
+            "wall_us_per_op": 27.42,
+            "launch_us_per_op": 6.73,
+            "wait_us_per_op": 20.268
+          },
+          {
+            "wall_us_per_op": 27.292,
+            "launch_us_per_op": 6.261,
+            "wait_us_per_op": 20.636
+          },
+          {
+            "wall_us_per_op": 27.337,
+            "launch_us_per_op": 5.856,
+            "wait_us_per_op": 21.108
+          },
+          {
+            "wall_us_per_op": 27.283,
+            "launch_us_per_op": 5.863,
+            "wait_us_per_op": 21.047
+          }
+        ]
+      },
+      "median": {
+        "serialized": {
+          "wall_us_per_op": 35.846,
+          "launch_us_per_op": 6.18,
+          "wait_us_per_op": 29.222
+        },
+        "queued": {
+          "wall_us_per_op": 27.306,
+          "launch_us_per_op": 5.895,
+          "wait_us_per_op": 21.018
+        }
+      }
+    }
+  ]
+}
